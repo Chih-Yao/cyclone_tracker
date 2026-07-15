@@ -1057,6 +1057,9 @@ def test_source_storm_and_unit_controls_update_the_view(
     page = dashboard_page(browser, site_url)
     wait_for_dashboard(page)
 
+    assert page.locator("#wind-chart path.member-series").count() == 0
+    assert page.locator("#pressure-chart path.member-series").count() == 0
+
     metric_button = page.get_by_role("button", name="m/s")
     metric_button.click()
     assert metric_button.get_attribute("aria-pressed") == "true"
@@ -1077,6 +1080,17 @@ def test_source_storm_and_unit_controls_update_the_view(
     status = page.get_by_role("status")
     assert status.get_attribute("data-state") == "stale"
     assert "最後成功資料" in status.text_content()
+    assert page.locator("#wind-chart path.member-series").count() == 2
+    assert page.locator("#pressure-chart path.member-series").count() == 2
+
+    page.get_by_role("button", name="knots").click()
+    assert page.locator("#wind-chart path.member-series").count() == 2
+    assert page.locator("#wind-chart").get_by_text("knots", exact=True).is_visible()
+
+    page.get_by_label("資料來源").select_option("gefs")
+    page.locator(".instrument-shell[data-current-source='gefs']").wait_for(timeout=5_000)
+    assert page.locator("#wind-chart path.member-series").count() == 0
+    assert page.locator("#pressure-chart path.member-series").count() == 0
     page.close()
 
 

@@ -4,6 +4,7 @@ import { renderMap } from "./map.js";
 
 const WIND_UNIT_KEY = "cyclone-wind-unit";
 const NO_STORE = Object.freeze({ cache: "no-store" });
+const ECMWF_SOURCE_IDS = new Set(["ifs-ens", "aifs-ens"]);
 
 function storedUnit() {
   try {
@@ -50,6 +51,13 @@ function selectedCycleSummary(source = selectedSource()) {
 
 function selectedStorm() {
   return state.cycle?.storms.find((storm) => storm.id === state.stormId) ?? null;
+}
+
+function renderStrengthCharts(storm) {
+  const points = storm?.mean?.points ?? [];
+  const members = ECMWF_SOURCE_IDS.has(state.sourceId) ? (storm?.members ?? []) : [];
+  renderWindChart(view.wind, points, { unit: state.unit, members });
+  renderPressureChart(view.pressure, points, { members });
 }
 
 function firstAvailableSource(manifest, preferredId = null) {
@@ -193,10 +201,8 @@ function syncTelemetry() {
 
 function renderAll() {
   const storm = selectedStorm();
-  const points = storm?.mean?.points ?? [];
   renderMap(view.map, state.land, storm, { unit: state.unit });
-  renderWindChart(view.wind, points, { unit: state.unit });
-  renderPressureChart(view.pressure, points);
+  renderStrengthCharts(storm);
   view.shell.dataset.currentSource = state.sourceId ?? "";
   view.shell.dataset.currentCycle = state.cycleId ?? "";
   if (state.stormId) {
@@ -374,7 +380,7 @@ for (const button of view.unitButtons) {
     syncControls();
     const storm = selectedStorm();
     renderMap(view.map, state.land, storm, { unit: state.unit });
-    renderWindChart(view.wind, storm?.mean?.points ?? [], { unit: state.unit });
+    renderStrengthCharts(storm);
   });
 }
 

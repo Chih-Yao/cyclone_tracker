@@ -559,6 +559,20 @@ select:disabled {
   letter-spacing: 0.035em;
 }
 
+.member-series {
+  fill: none;
+  stroke: var(--sea-700);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-opacity: 0.2;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+#pressure-chart .member-series {
+  stroke: var(--pressure);
+}
+
 .mean-series {
   fill: none;
   stroke: var(--sea-700);
@@ -726,6 +740,7 @@ select:disabled {
 
   .track-member,
   .legend-member,
+  .member-series,
   .graticule {
     stroke: GrayText;
   }
