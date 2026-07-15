@@ -2,8 +2,10 @@ import csv
 import logging
 import re
 from collections import defaultdict
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from html.parser import HTMLParser
+from math import isfinite
 from urllib.parse import unquote, urlparse
 
 import httpx
@@ -43,6 +45,12 @@ _EXPECTED_TECHNIQUES = {
 }
 
 
+@dataclass(frozen=True)
+class _AtcfParseResult:
+    cycle: CycleData
+    valid_row_count: int
+
+
 class _DirectoryLinkParser(HTMLParser):
     def __init__(self) -> None:
         super().__init__()
@@ -74,73 +82,56 @@ def _parse_pressure(value: str) -> float | None:
     if not value:
         return None
     pressure = float(value)
+    if not isfinite(pressure):
+        raise ValueError("ATCF pressure must be finite")
     return pressure if pressure > 0 else None
 
 
-def _contains_syntactically_valid_atcf_row(text: str) -> bool:
-    for row in csv.reader(text.splitlines()):
-        fields = [field.strip() for field in row[:10]]
-        if len(fields) < 10:
-            continue
-        basin, number, cycle, _, technique, tau, lat, lon, wind, pressure = fields
-        if len(basin) != 2 or not basin.isalpha() or not technique:
-            continue
-        if not lat.upper().endswith(("N", "S")) or not lon.upper().endswith(("E", "W")):
-            continue
-        try:
-            int(number)
-            datetime.strptime(cycle, "%Y%m%d%H")
-            int(tau)
-            parse_atcf_coordinate(lat)
-            parse_atcf_coordinate(lon)
-            float(wind)
-            _parse_pressure(pressure)
-        except ValueError:
-            continue
-        return True
-    return False
-
-
-def parse_atcf_text(text: str, *, source_id: str, initialized_at: datetime) -> CycleData:
+def _parse_atcf_text(text: str, *, source_id: str, initialized_at: datetime) -> _AtcfParseResult:
     initialized_at_utc = initialized_at.astimezone(UTC)
     records: dict[str, dict[str, dict[int, TrackPoint]]] = defaultdict(lambda: defaultdict(dict))
     unrecognized_count = 0
+    valid_row_count = 0
 
     for row in csv.reader(text.splitlines()):
         fields = [field.strip() for field in row[:10]]
         if len(fields) < 10:
             continue
         basin, number_text, cycle_text, _, technique, tau_text, lat, lon, wind, pressure = fields
+        basin = basin.upper()
         technique = technique.upper()
 
+        if len(basin) != 2 or not basin.isalpha() or not technique:
+            continue
+        if not lat.upper().endswith(("N", "S")) or not lon.upper().endswith(("E", "W")):
+            continue
         try:
             number = int(number_text)
-        except ValueError:
-            continue
-        if basin.upper() != "WP" or not (1 <= number <= 49 or 90 <= number <= 99):
-            continue
-
-        member_type = _TECHNIQUE_TYPES.get(technique)
-        if member_type is None:
-            unrecognized_count += 1
-            continue
-
-        try:
             row_initialized_at = datetime.strptime(cycle_text, "%Y%m%d%H").replace(tzinfo=UTC)
             if row_initialized_at != initialized_at_utc:
                 continue
             tau_h = int(tau_text)
+            wind_kt = float(wind)
             point = TrackPoint(
                 tau_h=tau_h,
                 valid_at=initialized_at_utc + timedelta(hours=tau_h),
                 lat=parse_atcf_coordinate(lat),
                 lon=parse_atcf_coordinate(lon),
-                wind_kt=float(wind),
-                wind_source_value=float(wind),
+                wind_kt=wind_kt,
+                wind_source_value=wind_kt,
                 wind_source_unit="kt",
                 pressure_hpa=_parse_pressure(pressure),
             )
         except (ValueError, ValidationError):
+            continue
+
+        valid_row_count += 1
+        if basin != "WP" or not (1 <= number <= 49 or 90 <= number <= 99):
+            continue
+
+        member_type = _TECHNIQUE_TYPES.get(technique)
+        if member_type is None:
+            unrecognized_count += 1
             continue
 
         storm_id = f"{number:02d}W"
@@ -176,7 +167,12 @@ def parse_atcf_text(text: str, *, source_id: str, initialized_at: datetime) -> C
             )
         )
 
-    return CycleData(source_id=source_id, initialized_at=initialized_at_utc, storms=storms)
+    cycle = CycleData(source_id=source_id, initialized_at=initialized_at_utc, storms=storms)
+    return _AtcfParseResult(cycle=cycle, valid_row_count=valid_row_count)
+
+
+def parse_atcf_text(text: str, *, source_id: str, initialized_at: datetime) -> CycleData:
+    return _parse_atcf_text(text, source_id=source_id, initialized_at=initialized_at).cycle
 
 
 def candidate_cycles(now: datetime, *, count: int = 8) -> list[datetime]:
@@ -265,7 +261,12 @@ class NcepAtcfAdapter:
                         status="error",
                         error_kind="http_error",
                     )
-                if not _contains_syntactically_valid_atcf_row(file_response.text):
+                file_result = _parse_atcf_text(
+                    file_response.text,
+                    source_id=self.source_id,
+                    initialized_at=cycle,
+                )
+                if file_result.valid_row_count == 0:
                     return AdapterOutcome(
                         source_id=self.source_id,
                         cycle_id=cycle_id,
@@ -274,11 +275,11 @@ class NcepAtcfAdapter:
                     )
                 file_texts.append(file_response.text)
 
-            cycle_data = parse_atcf_text(
+            cycle_data = _parse_atcf_text(
                 "\n".join(file_texts),
                 source_id=self.source_id,
                 initialized_at=cycle,
-            )
+            ).cycle
             return AdapterOutcome(
                 source_id=self.source_id,
                 cycle_id=cycle_id,

@@ -255,6 +255,34 @@ def test_fetch_latest_reports_corrupt_200_tracker_payload_as_error() -> None:
     assert outcome.error_kind == "invalid_atcf_payload"
 
 
+@pytest.mark.parametrize(
+    "row",
+    [
+        "WP, 09, 2026071500, 03, AGFS, 000, 152N, 1300E, nan, 990",
+        "WP, 09, 2026071500, 03, AGFS, -006, 152N, 1300E, 45, 990",
+        "WP, 09, 2026071500, 03, AGFS, 000, 152N, 1300E, 45, 1301",
+        "WP, 09, 2026071400, 03, AGFS, 000, 152N, 1300E, 45, 990",
+    ],
+    ids=["non-finite-wind", "negative-tau", "invalid-pressure", "cycle-mismatch"],
+)
+def test_fetch_latest_rejects_atcf_shaped_payload_without_parser_valid_rows(row: str) -> None:
+    cycle_url = ncep_cycle_url("aigfs", INITIALIZED_AT)
+    expected_filename = expected_tracker_files("aigfs", INITIALIZED_AT)[0]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if str(request.url) == cycle_url:
+            return httpx.Response(200, text=directory_listing([expected_filename]))
+        return httpx.Response(200, text=f"{row}\n")
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        outcome = NcepAtcfAdapter("aigfs", client=client).fetch_latest(INITIALIZED_AT)
+
+    assert outcome.status == "error"
+    assert outcome.cycle_id == "2026071500"
+    assert outcome.cycle is None
+    assert outcome.error_kind == "invalid_atcf_payload"
+
+
 def test_fetch_latest_matches_aigefs_files_but_excludes_postprocessed_variants() -> None:
     cycle_url = ncep_cycle_url("aigefs", INITIALIZED_AT)
     expected_files = expected_tracker_files("aigefs", INITIALIZED_AT)
