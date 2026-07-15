@@ -290,7 +290,8 @@ function createTooltip() {
 }
 
 function showTooltip(tooltip, label, x, y, width) {
-  const tooltipX = x > width - 590 ? x - 580 : x + 10;
+  const candidateX = x > width - 590 ? x - 580 : x + 10;
+  const tooltipX = Math.min(Math.max(candidateX, 0), width - 570);
   const tooltipY = y < 48 ? y + 12 : y - 46;
   tooltip.setAttribute("transform", `translate(${compactNumber(tooltipX)} ${compactNumber(tooltipY)})`);
   tooltip.setAttribute("visibility", "visible");

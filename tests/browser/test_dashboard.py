@@ -606,6 +606,41 @@ def test_map_renderer_has_no_fetch_and_replaces_only_owned_layers(
     page.close()
 
 
+def test_map_focus_tooltip_stays_inside_the_projection(
+    browser: Browser,
+    site_url: str,
+    cycle_fixture: dict,
+) -> None:
+    page = dashboard_page(browser, site_url)
+    result = page.evaluate(
+        """async (storm) => {
+          const map = await import('/js/map.js');
+          const svg = document.querySelector('#forecast-map');
+          map.renderMap(
+            svg,
+            {type: 'FeatureCollection', features: []},
+            storm,
+            {unit: 'kt'},
+          );
+          const point = svg.querySelector('circle.mean-point');
+          point.focus();
+          const tooltip = svg.querySelector('.map-tooltip');
+          const transform = tooltip.getAttribute('transform');
+          const tooltipX = Number(transform.slice('translate('.length).split(' ')[0]);
+          return {
+            tooltipX,
+            visibility: tooltip.getAttribute('visibility'),
+            pointTitle: point.querySelector('title').textContent,
+          };
+        }""",
+        cycle_fixture["storms"][1],
+    )
+    assert "146.0°E" in result["pointTitle"]
+    assert result["visibility"] == "visible"
+    assert 0 <= result["tooltipX"] <= 1050 - 570
+    page.close()
+
+
 def test_charts_render_axes_units_and_accessible_points(
     browser: Browser,
     site_url: str,
