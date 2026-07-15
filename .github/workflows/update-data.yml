@@ -1,0 +1,52 @@
+name: 更新氣旋預報資料
+
+on:
+  schedule:
+    - cron: "17 */6 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: cyclone-data-update
+  cancel-in-progress: false
+
+jobs:
+  update-data:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: 取出程式碼
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: main
+      - name: 安裝 uv 與 Python
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: 安裝鎖定依賴
+        run: uv sync --frozen --all-groups
+      - name: 更新所有資料來源
+        run: uv run cyclone-tracker update
+      - name: 驗證靜態資料
+        run: uv run cyclone-tracker validate public/data
+      - name: 檢查資料變更
+        id: changes
+        run: |
+          git add public/data
+          if git diff --cached --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: 提交並推送有效資料
+        if: steps.changes.outputs.changed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "data: refresh cyclone forecasts"
+          git pull --rebase origin main
+          git push origin HEAD:main

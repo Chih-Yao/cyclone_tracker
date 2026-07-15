@@ -373,3 +373,71 @@ def test_fetch_latest_reports_non_missing_http_failure_as_error() -> None:
     assert outcome.cycle_id == "2026071500"
     assert outcome.cycle is None
     assert outcome.error_kind == "http_error"
+
+
+def test_fetch_latest_falls_back_when_newest_directory_is_forbidden() -> None:
+    newest_cycle = datetime(2026, 7, 15, 6, tzinfo=UTC)
+    newest_url = ncep_cycle_url("aigfs", newest_cycle)
+    selected_url = ncep_cycle_url("aigfs", INITIALIZED_AT)
+    filename = expected_tracker_files("aigfs", INITIALIZED_AT)[0]
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        calls.append(url)
+        if url == newest_url:
+            return httpx.Response(403)
+        if url == selected_url:
+            return httpx.Response(200, text=directory_listing([filename]))
+        if url == f"{selected_url}{filename}":
+            return httpx.Response(
+                200,
+                text="WP, 09, 2026071500, 03, AGFS, 000, 152N, 1300E, 45, 990\n",
+            )
+        raise AssertionError(f"unexpected request: {url}")
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        outcome = NcepAtcfAdapter("aigfs", client=client).fetch_latest(
+            datetime(2026, 7, 15, 10, 30, tzinfo=UTC)
+        )
+
+    assert outcome.status == "ok"
+    assert outcome.cycle_id == "2026071500"
+    assert calls == [newest_url, selected_url, f"{selected_url}{filename}"]
+
+
+def test_fetch_latest_reports_http_error_after_all_directories_are_forbidden() -> None:
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(str(request.url))
+        return httpx.Response(403)
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        outcome = NcepAtcfAdapter("gefs", client=client).fetch_latest(INITIALIZED_AT)
+
+    assert outcome.status == "error"
+    assert outcome.cycle is None
+    assert outcome.error_kind == "http_error"
+    assert len(calls) == 8
+
+
+def test_fetch_latest_reports_forbidden_tracker_file_as_http_error() -> None:
+    cycle_url = ncep_cycle_url("aigfs", INITIALIZED_AT)
+    filename = expected_tracker_files("aigfs", INITIALIZED_AT)[0]
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        calls.append(url)
+        if url == cycle_url:
+            return httpx.Response(200, text=directory_listing([filename]))
+        return httpx.Response(403)
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        outcome = NcepAtcfAdapter("aigfs", client=client).fetch_latest(INITIALIZED_AT)
+
+    assert outcome.status == "error"
+    assert outcome.cycle is None
+    assert outcome.error_kind == "http_error"
+    assert calls == [cycle_url, f"{cycle_url}{filename}"]

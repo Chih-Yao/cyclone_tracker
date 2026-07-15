@@ -218,6 +218,7 @@ class NcepAtcfAdapter:
             return self._fetch_latest(client, now)
 
     def _fetch_latest(self, client: httpx.Client, now: datetime) -> AdapterOutcome:
+        first_forbidden_cycle_id: str | None = None
         for cycle in candidate_cycles(now, count=8):
             cycle_id = cycle.strftime("%Y%m%d%H")
             directory_url = ncep_cycle_url(self.source_id, cycle)
@@ -231,6 +232,9 @@ class NcepAtcfAdapter:
                     error_kind="network_error",
                 )
             if response.status_code == httpx.codes.NOT_FOUND:
+                continue
+            if response.status_code == httpx.codes.FORBIDDEN:
+                first_forbidden_cycle_id = first_forbidden_cycle_id or cycle_id
                 continue
             if not response.is_success:
                 return AdapterOutcome(
@@ -287,6 +291,13 @@ class NcepAtcfAdapter:
                 cycle=cycle_data,
             )
 
+        if first_forbidden_cycle_id is not None:
+            return AdapterOutcome(
+                source_id=self.source_id,
+                cycle_id=first_forbidden_cycle_id,
+                status="error",
+                error_kind="http_error",
+            )
         return AdapterOutcome(
             source_id=self.source_id,
             cycle_id=None,
