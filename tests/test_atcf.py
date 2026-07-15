@@ -417,6 +417,7 @@ def test_fetch_latest_reports_http_error_after_all_directories_are_forbidden() -
         outcome = NcepAtcfAdapter("gefs", client=client).fetch_latest(INITIALIZED_AT)
 
     assert outcome.status == "error"
+    assert outcome.cycle_id == "2026071500"
     assert outcome.cycle is None
     assert outcome.error_kind == "http_error"
     assert len(calls) == 8
@@ -438,6 +439,7 @@ def test_fetch_latest_reports_forbidden_tracker_file_as_http_error() -> None:
         outcome = NcepAtcfAdapter("aigfs", client=client).fetch_latest(INITIALIZED_AT)
 
     assert outcome.status == "error"
+    assert outcome.cycle_id == "2026071500"
     assert outcome.cycle is None
     assert outcome.error_kind == "http_error"
     assert calls == [cycle_url, f"{cycle_url}{filename}"]
