@@ -79,13 +79,13 @@ ECMWF cycle JSON 已包含 `storm.members[]`，每個 member point 都有 `tau_h
 
 ## 6. 測試與驗收
 
-功能實作採測試先行：
+功能實作保留少量核心回歸測試，視覺驗收簡化為截圖：
 
 1. 先擴充 ECMWF 前端 fixture，加入多 member、跨 tau 與缺 pressure 的資料。
-2. 建立失敗中的 browser tests，驗證 member path 數量、member 在 mean 下層、共同 y extent、缺口斷線與 knots／m/s 轉換。
-3. 建立 integration tests，驗證 ECMWF source 顯示成員線、NCEP source 不顯示成員線，且來源／storm／unit 切換不留下舊圖層。
-4. 以最小前端修改讓測試通過，再進行桌面與 390px 行動版 QA。
-5. 回補後驗證三個 `2026071400.json`、manifest cycle/storm 摘要、12-cycle 限制及整棵 `public/data` schema。
+2. 建立一組聚焦的 browser regression test，合併驗證 member path 數量、member 在 mean 下層、缺口斷線與 knots／m/s 轉換。
+3. 建立一組 source integration test，驗證 ECMWF 顯示成員線、NCEP 維持平均線，且切換來源不留下舊圖層。
+4. 以最小前端修改讓測試通過；視覺部分只產出桌面與 390px 行動版截圖供人工確認，不新增完整 responsive 尺寸矩陣。
+5. 回補後直接驗證三個 `2026071400.json`、manifest cycle/storm 摘要及整棵 `public/data` schema；12-cycle 行為沿用既有 storage 測試，不重複新增測試。
 
 完成前重新執行：
 
@@ -99,7 +99,7 @@ uv lock --check
 git diff --check
 ```
 
-瀏覽器 QA 必須確認桌面與行動版無水平 overflow、console/page error 或外部 runtime request，並以實際 ECMWF cycle 確認平均線在成員線上方仍可辨識。
+瀏覽器 QA 以實際 ECMWF cycle 產出桌面與行動版截圖，人工確認平均線在成員線上方仍可辨識、版面沒有明顯裁切或水平 overflow。既有全套測試仍需通過，但本次不擴充額外的視覺量測或互動 QA 矩陣。
 
 ## 7. Git 與部署界線
 
