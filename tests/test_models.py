@@ -223,6 +223,18 @@ def test_storm_rejects_unsupported_identifiers(storm_id: str) -> None:
         )
 
 
+@pytest.mark.parametrize("storm_id", ["50W", "01E"])
+def test_cycle_summary_rejects_unsupported_storm_identifiers(storm_id: str) -> None:
+    with pytest.raises(ValidationError):
+        CycleSummary(
+            id="2026071500",
+            initialized_at=datetime(2026, 7, 15, tzinfo=UTC),
+            href="gefs/2026071500.json",
+            storms=[storm_id],
+            empty=False,
+        )
+
+
 @pytest.mark.parametrize(
     ("model", "datetime_field"),
     [

@@ -54,6 +54,15 @@ Pressure = Annotated[float, AfterValidator(_validate_pressure)]
 _STORM_ID_PATTERN = re.compile(r"^(0[1-9]|[1-4][0-9]|9[0-9])W$")
 
 
+def _validate_storm_id(value: str) -> str:
+    if _STORM_ID_PATTERN.fullmatch(value) is None:
+        raise ValueError("storm id must be a supported Western North Pacific identifier")
+    return value
+
+
+_StormId = Annotated[str, AfterValidator(_validate_storm_id)]
+
+
 class _StrictModel(BaseModel):
     model_config = ConfigDict(strict=True, extra="forbid")
 
@@ -112,19 +121,12 @@ class MeanTrack(_StrictModel):
 
 
 class Storm(_StrictModel):
-    id: str
+    id: _StormId
     name: str | None
     basin: Literal["WP"]
     invest: bool
     members: list[MemberTrack]
     mean: MeanTrack
-
-    @field_validator("id")
-    @classmethod
-    def validate_id(cls, value: str) -> str:
-        if _STORM_ID_PATTERN.fullmatch(value) is None:
-            raise ValueError("storm id must be a supported Western North Pacific identifier")
-        return value
 
 
 class CycleData(_StrictModel):
@@ -138,7 +140,7 @@ class CycleSummary(_StrictModel):
     id: str
     initialized_at: UtcDateTime
     href: str
-    storms: list[str]
+    storms: list[_StormId]
     empty: bool
 
 
