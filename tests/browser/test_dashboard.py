@@ -959,9 +959,7 @@ def test_charts_render_ecmwf_members_below_mean_and_break_gaps(
     site_url: str,
 ) -> None:
     page = dashboard_page(browser, site_url)
-    storm = json.loads(
-        (FRONTEND_FIXTURES / "ifs-ens-2026071500.json").read_text()
-    )["storms"][0]
+    storm = json.loads((FRONTEND_FIXTURES / "ifs-ens-2026071500.json").read_text())["storms"][0]
     result = page.evaluate(
         """async (storm) => {
           const charts = await import('/js/charts.js');
