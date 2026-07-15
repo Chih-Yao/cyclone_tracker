@@ -82,7 +82,7 @@ def test_normalize_bufr_records_converts_si_wind_and_filters_basin() -> None:
     assert point.pressure_hpa == 965.0
 
 
-def test_normalize_bufr_records_classifies_members_and_computes_mean() -> None:
+def test_normalize_bufr_records_classifies_aifs_members_and_computes_mean() -> None:
     records = [
         BufrTrackRecord("90W", 51, 1, 0, 10.0, 130.0, 20.0, 100000.0, None),
         BufrTrackRecord("90W", 1, 4, 0, 12.0, 132.0, 30.0, 99000.0, None),
@@ -99,6 +99,91 @@ def test_normalize_bufr_records_classifies_members_and_computes_mean() -> None:
         ("52", "deterministic"),
     ]
     assert storm.mean.points[0].member_count == 3
+
+
+def test_normalize_bufr_records_classifies_ifs_member_51_type_0_as_control() -> None:
+    cycle = normalize_bufr_records(
+        "ifs-ens",
+        INITIALIZED_AT,
+        [BufrTrackRecord("09W", 51, 0, 0, 15.0, 135.0, 20.0, 99000.0, None)],
+    )
+
+    assert [(member.id, member.member_type) for member in cycle.storms[0].members] == [
+        ("51", "control")
+    ]
+
+
+@pytest.mark.parametrize(
+    ("source_id", "member_number", "forecast_type"),
+    [
+        ("ifs-ens", 51, 1),
+        ("ifs-ens", 52, 0),
+        ("aifs-ens", 51, 0),
+        ("aifs-ens", 52, 1),
+        ("aifs-ens", 999, 4),
+    ],
+)
+def test_normalize_bufr_records_rejects_source_specific_member_type_mismatch(
+    source_id: str,
+    member_number: int,
+    forecast_type: int,
+) -> None:
+    record = BufrTrackRecord(
+        "09W", member_number, forecast_type, 0, 15.0, 135.0, 20.0, 99000.0, None
+    )
+
+    with pytest.raises(ValueError, match="invalid ECMWF record"):
+        normalize_bufr_records(source_id, INITIALIZED_AT, [record])
+
+
+@pytest.mark.parametrize(
+    ("source_id", "cycle", "member_number", "forecast_type", "tau_h"),
+    [
+        ("ifs-ens", datetime(2026, 7, 15, 6, tzinfo=UTC), 51, 0, 144),
+        ("ifs-ens", INITIALIZED_AT, 51, 0, 360),
+        ("aifs-ens", INITIALIZED_AT, 52, 0, 360),
+    ],
+)
+def test_normalize_bufr_records_accepts_terminal_horizon_boundary(
+    source_id: str,
+    cycle: datetime,
+    member_number: int,
+    forecast_type: int,
+    tau_h: int,
+) -> None:
+    record = BufrTrackRecord(
+        "09W", member_number, forecast_type, tau_h, 15.0, 135.0, 20.0, 99000.0, None
+    )
+
+    normalized = normalize_bufr_records(source_id, cycle, [record])
+
+    assert normalized.storms[0].members[0].points[0].tau_h == tau_h
+
+
+@pytest.mark.parametrize(
+    ("source_id", "cycle", "member_number", "forecast_type", "tau_h"),
+    [
+        ("ifs-ens", datetime(2026, 7, 15, 6, tzinfo=UTC), 51, 0, 150),
+        ("ifs-ens", INITIALIZED_AT, 51, 0, 366),
+        ("aifs-ens", INITIALIZED_AT, 52, 0, 366),
+        ("ifs-ens", INITIALIZED_AT, 51, 0, 999),
+        ("ifs-ens", INITIALIZED_AT, 51, 0, -6),
+        ("ifs-ens", INITIALIZED_AT, 51, 0, 1),
+    ],
+)
+def test_normalize_bufr_records_rejects_invalid_tau_for_source_cycle(
+    source_id: str,
+    cycle: datetime,
+    member_number: int,
+    forecast_type: int,
+    tau_h: int,
+) -> None:
+    record = BufrTrackRecord(
+        "09W", member_number, forecast_type, tau_h, 15.0, 135.0, 20.0, 99000.0, None
+    )
+
+    with pytest.raises(ValueError, match="invalid ECMWF record"):
+        normalize_bufr_records(source_id, cycle, [record])
 
 
 def test_normalize_bufr_records_keeps_last_duplicate_member_tau() -> None:
@@ -153,7 +238,7 @@ class FakeEccodes(ModuleType):
 
 
 def bufr_message(*, subsets: int = 2) -> dict[str, Any]:
-    return {
+    message = {
         "values": {
             "numberOfSubsets": subsets,
             "stormIdentifier": "09W",
@@ -173,6 +258,9 @@ def bufr_message(*, subsets: int = 2) -> dict[str, Any]:
             "#2#windSpeedAt10M": [55.0, 45.0],
         },
     }
+    if subsets == 1:
+        message["arrays"] = {key: values[:1] for key, values in message["arrays"].items()}
+    return message
 
 
 def install_fake_eccodes(monkeypatch: pytest.MonkeyPatch, *messages: dict[str, Any]) -> FakeEccodes:
@@ -285,6 +373,78 @@ def test_decode_bufr_file_rejects_payload_without_bufr_messages(
 
     with pytest.raises(ValueError, match="no BUFR messages"):
         decode_bufr_file(path)
+
+
+def test_fetch_latest_reports_malformed_raw_storm_identifier_as_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    message = bufr_message(subsets=1)
+    message["values"]["stormIdentifier"] = "BAD!"
+    install_fake_eccodes(monkeypatch, message)
+
+    with httpx.Client(
+        transport=httpx.MockTransport(lambda _request: httpx.Response(200, content=b"BUFR"))
+    ) as client:
+        outcome = EcmwfBufrAdapter("aifs-ens", client=client).fetch_latest(INITIALIZED_AT)
+
+    assert outcome.status == "error"
+    assert outcome.cycle is None
+    assert outcome.error_kind == "invalid_bufr_payload"
+
+
+@pytest.mark.parametrize("storm_identifier", ["05E", "70W"])
+def test_fetch_latest_preserves_valid_unsupported_storm_identifier_as_empty(
+    monkeypatch: pytest.MonkeyPatch,
+    storm_identifier: str,
+) -> None:
+    message = bufr_message(subsets=1)
+    message["values"]["stormIdentifier"] = storm_identifier
+    install_fake_eccodes(monkeypatch, message)
+
+    with httpx.Client(
+        transport=httpx.MockTransport(lambda _request: httpx.Response(200, content=b"BUFR"))
+    ) as client:
+        outcome = EcmwfBufrAdapter("aifs-ens", client=client).fetch_latest(INITIALIZED_AT)
+
+    assert outcome.status == "empty"
+    assert outcome.cycle is not None
+    assert outcome.cycle.storms == []
+
+
+@pytest.mark.parametrize(
+    ("member_number", "forecast_type", "tau_h"),
+    [(999, 4, 0), (52, 0, 999)],
+)
+def test_fetch_latest_maps_semantic_record_violation_to_invalid_payload(
+    monkeypatch: pytest.MonkeyPatch,
+    member_number: int,
+    forecast_type: int,
+    tau_h: int,
+) -> None:
+    monkeypatch.setattr(
+        "cyclone_tracker.adapters.ecmwf.decode_bufr_file",
+        lambda _path: [
+            BufrTrackRecord(
+                "05E",
+                member_number,
+                forecast_type,
+                tau_h,
+                15.0,
+                -120.0,
+                20.0,
+                99000.0,
+                None,
+            )
+        ],
+    )
+    with httpx.Client(
+        transport=httpx.MockTransport(lambda _request: httpx.Response(200, content=b"BUFR"))
+    ) as client:
+        outcome = EcmwfBufrAdapter("aifs-ens", client=client).fetch_latest(INITIALIZED_AT)
+
+    assert outcome.status == "error"
+    assert outcome.cycle is None
+    assert outcome.error_kind == "invalid_bufr_payload"
 
 
 def test_fetch_latest_falls_back_from_404_and_decodes_one_terminal_file(

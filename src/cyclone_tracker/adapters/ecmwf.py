@@ -19,7 +19,15 @@ from cyclone_tracker.models import CycleData, MeanTrack, MemberTrack, Storm, Tra
 
 _ECMWF_ROOT = "https://data.ecmwf.int/forecasts"
 _SOURCE_MODELS = {"ifs-ens": "ifs", "aifs-ens": "aifs-ens"}
-_FORECAST_TYPES = {0: "deterministic", 1: "control", 4: "perturbed"}
+_PERTURBED_MEMBERS = {(member, 4): "perturbed" for member in range(1, 51)}
+_SOURCE_MEMBER_TYPES = {
+    "ifs-ens": {**_PERTURBED_MEMBERS, (51, 0): "control"},
+    "aifs-ens": {
+        **_PERTURBED_MEMBERS,
+        (51, 1): "control",
+        (52, 0): "deterministic",
+    },
+}
 _MEMBER_TYPE_ORDER = {"control": 0, "perturbed": 1, "deterministic": 2}
 _STORM_IDENTIFIER = re.compile(r"^(\d{2})([A-Z])$")
 
@@ -37,6 +45,19 @@ class BufrTrackRecord:
     storm_name: str | None
 
 
+class EcmwfRecordValidationError(ValueError):
+    pass
+
+
+def _terminal_horizon(source_id: str, cycle: datetime) -> int:
+    if source_id not in _SOURCE_MODELS:
+        raise ValueError(f"unsupported ECMWF source: {source_id}")
+    cycle_utc = cycle.astimezone(UTC)
+    if cycle_utc.hour not in {0, 6, 12, 18}:
+        raise ValueError("ECMWF cycle hour must be 00, 06, 12, or 18 UTC")
+    return 144 if source_id == "ifs-ens" and cycle_utc.hour in {6, 18} else 360
+
+
 def build_tf_url(source_id: str, cycle: datetime) -> str:
     try:
         model = _SOURCE_MODELS[source_id]
@@ -44,9 +65,7 @@ def build_tf_url(source_id: str, cycle: datetime) -> str:
         raise ValueError(f"unsupported ECMWF source: {source_id}") from error
 
     cycle_utc = cycle.astimezone(UTC)
-    if cycle_utc.hour not in {0, 6, 12, 18}:
-        raise ValueError("ECMWF cycle hour must be 00, 06, 12, or 18 UTC")
-    terminal_step = 144 if source_id == "ifs-ens" and cycle_utc.hour in {6, 18} else 360
+    terminal_step = _terminal_horizon(source_id, cycle_utc)
     return (
         f"{_ECMWF_ROOT}/{cycle_utc:%Y%m%d}/{cycle_utc:%H}z/{model}/0p25/enfo/"
         f"{cycle_utc:%Y%m%d%H}0000-{terminal_step}h-enfo-tf.bufr"
@@ -68,24 +87,41 @@ def normalize_bufr_records(
     if source_id not in _SOURCE_MODELS:
         raise ValueError(f"unsupported ECMWF source: {source_id}")
     initialized_at_utc = initialized_at.astimezone(UTC)
+    terminal_horizon = _terminal_horizon(source_id, initialized_at_utc)
     grouped: dict[str, dict[tuple[int, str], dict[int, TrackPoint]]] = defaultdict(
         lambda: defaultdict(dict)
     )
     names: dict[str, str | None] = {}
 
     for record in records:
+        member_key = (record.ensemble_member_number, record.ensemble_forecast_type)
+        member_type = _SOURCE_MEMBER_TYPES[source_id].get(member_key)
+        if member_type is None:
+            raise EcmwfRecordValidationError(
+                "invalid ECMWF record: unsupported member/type combination "
+                f"for {source_id}: {record.ensemble_member_number}/"
+                f"{record.ensemble_forecast_type}"
+            )
+        if (
+            not isinstance(record.tau_h, int)
+            or record.tau_h < 0
+            or record.tau_h % 6 != 0
+            or record.tau_h > terminal_horizon
+        ):
+            raise EcmwfRecordValidationError(
+                "invalid ECMWF record: tau_h must be 6-hour aligned between 0 and "
+                f"{terminal_horizon}: {record.tau_h}"
+            )
+
         parsed_identifier = _parse_storm_identifier(record.storm_identifier)
         if parsed_identifier is None:
             continue
         basin, number = parsed_identifier
         if basin != "W" or not (1 <= number <= 49 or 90 <= number <= 99):
             continue
-        member_type = _FORECAST_TYPES.get(record.ensemble_forecast_type)
-        if member_type is None:
-            continue
 
         storm_id = f"{number:02d}W"
-        member_key = (record.ensemble_member_number, member_type)
+        grouped_member_key = (record.ensemble_member_number, member_type)
         pressure_hpa = record.pressure_pa / 100.0 if record.pressure_pa is not None else None
         point = TrackPoint(
             tau_h=record.tau_h,
@@ -97,7 +133,7 @@ def normalize_bufr_records(
             wind_source_unit="m/s",
             pressure_hpa=pressure_hpa,
         )
-        grouped[storm_id][member_key][record.tau_h] = point
+        grouped[storm_id][grouped_member_key][record.tau_h] = point
         if storm_id not in names or record.storm_name:
             names[storm_id] = record.storm_name.strip() if record.storm_name else None
 
@@ -187,12 +223,6 @@ def _append_subset_records(
         member_number = int(member)
         forecast_type_number = int(forecast_type)
         tau_h = int(tau)
-        if not 0 <= member_number <= 1000:
-            continue
-        if forecast_type_number not in _FORECAST_TYPES:
-            continue
-        if not 0 <= tau_h <= 1000:
-            continue
         if not -90.0 <= float(lat) <= 90.0 or not -360.0 <= float(lon) <= 360.0:
             continue
         if not 0.0 <= float(wind) <= 200.0:
@@ -251,6 +281,8 @@ def decode_bufr_file(path: Path) -> list[BufrTrackRecord]:
                 if subset_count <= 0:
                     raise ValueError("BUFR numberOfSubsets must be positive")
                 storm_identifier = str(codes_get(handle, "stormIdentifier")).strip().upper()
+                if _parse_storm_identifier(storm_identifier) is None:
+                    continue
                 storm_name_raw = str(codes_get(handle, "longStormName")).strip()
                 storm_name = storm_name_raw or None
                 member_numbers = _broadcast_array(
