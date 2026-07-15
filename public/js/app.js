@@ -208,7 +208,7 @@ function announceCurrentData() {
       "error",
     );
   } else {
-    setStatus(`已載入 ${source.name_zh_tw} 的最新可用預報。`, "ready");
+    setStatus(`已載入 ${source.name_zh_tw} 的預報。`, "ready");
   }
 }
 
@@ -307,6 +307,10 @@ async function reloadData() {
   try {
     const manifest = await loadManifest(undefined, NO_STORE);
     const source = firstAvailableSource(manifest, state.sourceId);
+    if (source === null) {
+      setStatus("重新讀取完成，但目前沒有可用起報時間；保留上次可用的預報。", "empty");
+      return;
+    }
     const summary =
       source.cycles.find((cycle) => cycle.id === state.cycleId) ?? newestCycle(source);
     const cycle = await loadCycle(summary.href, NO_STORE);

@@ -138,7 +138,9 @@ def test_data_helpers_forward_optional_fetch_options(
     site_url: str,
 ) -> None:
     page = browser.new_page()
+    install_fixture_routes(page)
     page.goto(site_url)
+    wait_for_dashboard(page)
     calls = page.evaluate(
         """async () => {
           const originalFetch = window.fetch;
@@ -844,6 +846,7 @@ def test_dashboard_controls_initialize_first_available_source_and_newest_cycle(
     assert attribution.get_attribute("href") == "https://nomads.ncep.noaa.gov/"
     assert page.locator("#forecast-map .map-legend").is_visible()
     assert page.locator("#forecast-map path.track-mean").count() == 1
+    assert page.get_by_role("status").text_content() == "已載入 NCEP GEFS 的預報。"
     page.close()
 
 
@@ -960,6 +963,106 @@ def test_reload_uses_no_store_and_retains_last_view_on_cycle_error(
         {"url": f"{site_url}/data/manifest.json", "cache": "no-store"},
         {"url": f"{site_url}/data/gefs/2026071500.json", "cache": "no-store"},
     ]
+    page.close()
+
+
+def test_reload_empty_manifest_retains_view_and_next_reload_recovers(
+    browser: Browser,
+    site_url: str,
+) -> None:
+    page = browser.new_page(viewport={"width": 1440, "height": 900})
+    install_fixture_routes(page)
+    manifest = (FRONTEND_FIXTURES / "manifest.json").read_bytes()
+    empty_manifest = b'{"schema_version":1,"generated_at":"2026-07-15T02:00:00Z","sources":[]}'
+    manifest_calls = 0
+
+    def serve_manifest(route) -> None:
+        nonlocal manifest_calls
+        manifest_calls += 1
+        route.fulfill(
+            status=200,
+            body=empty_manifest if manifest_calls == 2 else manifest,
+            content_type="application/json",
+        )
+
+    page.route("**/data/manifest.json", serve_manifest)
+    page.goto(site_url)
+    wait_for_dashboard(page)
+    shell = page.locator(".instrument-shell")
+    expected_selection = {
+        "source": page.get_by_label("資料來源").input_value(),
+        "cycle": page.get_by_label("模式起報時間").input_value(),
+        "storm": page.get_by_label("熱帶氣旋").input_value(),
+    }
+    expected_paths = {
+        "map": page.locator("#forecast-map path.track-mean").get_attribute("d"),
+        "wind": page.locator("#wind-chart path.mean-series").get_attribute("d"),
+        "pressure": page.locator("#pressure-chart path.mean-series").get_attribute("d"),
+    }
+
+    page.get_by_role("button", name="重新讀取資料").click()
+    status = page.locator("#load-status[data-state='empty']")
+    status.wait_for(timeout=5_000)
+    assert status.text_content() == ("重新讀取完成，但目前沒有可用起報時間；保留上次可用的預報。")
+    assert "TypeError" not in status.text_content()
+    assert "Cannot read properties" not in status.text_content()
+    assert shell.get_attribute("data-current-source") == expected_selection["source"]
+    assert shell.get_attribute("data-current-cycle") == expected_selection["cycle"]
+    assert shell.get_attribute("data-current-storm") == expected_selection["storm"]
+    assert page.get_by_label("資料來源").input_value() == expected_selection["source"]
+    assert page.get_by_label("模式起報時間").input_value() == expected_selection["cycle"]
+    assert page.get_by_label("熱帶氣旋").input_value() == expected_selection["storm"]
+    assert page.locator("#forecast-map path.track-mean").get_attribute("d") == expected_paths["map"]
+    assert page.locator("#wind-chart path.mean-series").get_attribute("d") == expected_paths["wind"]
+    assert (
+        page.locator("#pressure-chart path.mean-series").get_attribute("d")
+        == expected_paths["pressure"]
+    )
+
+    page.get_by_role("button", name="重新讀取資料").click()
+    ready = page.locator("#load-status[data-state='ready']")
+    ready.wait_for(timeout=5_000)
+    assert ready.text_content() == "已載入 NCEP GEFS 的預報。"
+    assert manifest_calls == 3
+    page.close()
+
+
+def test_reload_disables_source_cycle_and_reload_until_manifest_arrives(
+    browser: Browser,
+    site_url: str,
+) -> None:
+    page = dashboard_page(browser, site_url)
+    wait_for_dashboard(page)
+    page.evaluate(
+        """() => {
+          const originalFetch = window.fetch.bind(window);
+          window.__finishManifestReload = null;
+          window.fetch = (input, options) => {
+            const path = new URL(input, window.location.href).pathname;
+            if (path === '/data/manifest.json' && options?.cache === 'no-store') {
+              return new Promise((resolve, reject) => {
+                window.__finishManifestReload = () => originalFetch(input, options).then(
+                  resolve,
+                  reject,
+                );
+              });
+            }
+            return originalFetch(input, options);
+          };
+        }"""
+    )
+
+    page.get_by_role("button", name="重新讀取資料").click()
+    page.wait_for_function("typeof window.__finishManifestReload === 'function'")
+    assert page.get_by_label("資料來源").is_disabled()
+    assert page.get_by_label("模式起報時間").is_disabled()
+    assert page.get_by_role("button", name="重新讀取資料").is_disabled()
+
+    page.evaluate("() => { window.__finishManifestReload(); }")
+    page.locator("#load-status[data-state='ready']").wait_for(timeout=5_000)
+    assert page.get_by_label("資料來源").is_enabled()
+    assert page.get_by_label("模式起報時間").is_enabled()
+    assert page.get_by_role("button", name="重新讀取資料").is_enabled()
     page.close()
 
 
