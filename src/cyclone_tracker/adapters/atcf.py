@@ -218,7 +218,7 @@ class NcepAtcfAdapter:
             return self._fetch_latest(client, now)
 
     def _fetch_latest(self, client: httpx.Client, now: datetime) -> AdapterOutcome:
-        first_forbidden_cycle_id: str | None = None
+        first_incomplete_http_cycle_id: str | None = None
         for cycle in candidate_cycles(now, count=8):
             cycle_id = cycle.strftime("%Y%m%d%H")
             directory_url = ncep_cycle_url(self.source_id, cycle)
@@ -234,7 +234,7 @@ class NcepAtcfAdapter:
             if response.status_code == httpx.codes.NOT_FOUND:
                 continue
             if response.status_code == httpx.codes.FORBIDDEN:
-                first_forbidden_cycle_id = first_forbidden_cycle_id or cycle_id
+                first_incomplete_http_cycle_id = first_incomplete_http_cycle_id or cycle_id
                 continue
             if not response.is_success:
                 return AdapterOutcome(
@@ -248,6 +248,7 @@ class NcepAtcfAdapter:
             if set(filenames) != _expected_tracker_files(self.source_id, cycle):
                 continue
             file_texts: list[str] = []
+            tracker_file_incomplete = False
             for filename in filenames:
                 try:
                     file_response = client.get(f"{directory_url}{filename}")
@@ -258,6 +259,10 @@ class NcepAtcfAdapter:
                         status="error",
                         error_kind="network_error",
                     )
+                if file_response.status_code in {httpx.codes.FORBIDDEN, httpx.codes.NOT_FOUND}:
+                    first_incomplete_http_cycle_id = first_incomplete_http_cycle_id or cycle_id
+                    tracker_file_incomplete = True
+                    break
                 if not file_response.is_success:
                     return AdapterOutcome(
                         source_id=self.source_id,
@@ -279,6 +284,9 @@ class NcepAtcfAdapter:
                     )
                 file_texts.append(file_response.text)
 
+            if tracker_file_incomplete:
+                continue
+
             cycle_data = _parse_atcf_text(
                 "\n".join(file_texts),
                 source_id=self.source_id,
@@ -291,10 +299,10 @@ class NcepAtcfAdapter:
                 cycle=cycle_data,
             )
 
-        if first_forbidden_cycle_id is not None:
+        if first_incomplete_http_cycle_id is not None:
             return AdapterOutcome(
                 source_id=self.source_id,
-                cycle_id=first_forbidden_cycle_id,
+                cycle_id=first_incomplete_http_cycle_id,
                 status="error",
                 error_kind="http_error",
             )
