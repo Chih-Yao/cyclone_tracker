@@ -1078,6 +1078,7 @@ git commit -m "feat: render local cyclone map and charts"
 - Create: `public/js/app.js`
 - Modify: `public/index.html`
 - Modify: `public/styles.css`
+- Modify: `public/js/data.js`
 - Modify: `public/js/map.js`
 - Modify: `public/js/charts.js`
 - Modify: `tests/browser/test_dashboard.py`
@@ -1099,7 +1100,8 @@ def test_source_cycle_storm_and_unit_controls_update_the_view(browser: Browser, 
     assert page.get_by_role("button", name="m/s").get_attribute("aria-pressed") == "true"
     assert page.locator("#wind-chart").get_by_text("m/s").is_visible()
     assert page.evaluate("localStorage.getItem('cyclone-wind-unit')") == "m/s"
-    assert page.get_by_text("51.4 m/s").is_visible()
+    page.locator("#forecast-map circle.mean-point").nth(1).focus()
+    assert page.locator("#forecast-map .map-tooltip").get_by_text("50.2 m/s", exact=False).is_visible()
 
 
 def test_empty_cycle_explains_what_user_can_do(browser: Browser, site_url: str) -> None:
@@ -1150,11 +1152,22 @@ const state = {
 };
 ```
 
-On `DOMContentLoaded`, load manifest and local land in parallel, choose the first source with cycles, then the newest cycle and first storm. Source changes select its newest cycle; cycle changes preserve the same storm when available; storm changes redraw only; unit changes persist and redraw map/wind chart. The reload button re-fetches manifest with `{ cache: "no-store" }`. Every async transition sets a clear Taiwan Chinese loading/status message and catches errors into one actionable error panel without clearing a previously usable visualization.
+On `DOMContentLoaded`, load manifest and local land in parallel, choose the first source with cycles,
+then the newest cycle and first storm. Source changes select its newest cycle; cycle changes preserve
+the same storm when available; storm changes redraw only; unit changes persist and redraw map/wind
+chart. Extend the Task 6 data helpers with an optional `fetch` options argument; the reload button
+re-fetches both manifest and selected cycle with `{ cache: "no-store" }`. Every async transition
+sets a clear Taiwan Chinese loading/status message and catches errors into one actionable error
+panel without clearing a previously usable visualization.
 
 - [ ] **Step 4: Complete responsive styling and visual signature**
 
-Apply the approved blue-green nautical desk: quiet white panels, pale aqua sea, muted green land, low-opacity member tracks forming a visible forecast corridor, dark teal mean route, data-monospace timestamps, and one serif product title. Remove decorative effects that do not encode forecast information. Add stale/empty/error variants, chart aspect sizing, map legend, tooltip positioning, mobile stacking, focus outlines, forced-colors compatibility and reduced-motion behavior.
+Apply the approved blue-green nautical desk: quiet white panels, pale aqua sea, muted green land,
+low-opacity member tracks forming a visible forecast corridor, dark teal mean route,
+data-monospace timestamps, and the restrained condensed sans product title from the frontend design
+plan. Remove decorative effects that do not encode forecast information. Add stale/empty/error
+variants, chart aspect sizing, map legend, tooltip positioning, mobile stacking, focus outlines,
+forced-colors compatibility and reduced-motion behavior.
 
 - [ ] **Step 5: Run full browser tests and inspect desktop/mobile screenshots**
 
