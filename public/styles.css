@@ -395,6 +395,15 @@ select:disabled {
   background: var(--sea-100);
 }
 
+.map-point-detail {
+  display: none;
+  margin: 0;
+  padding: 0.65rem 1rem;
+  border-top: 1px solid var(--line);
+  color: var(--ink-600);
+  font-size: 0.78rem;
+}
+
 .chart-frame {
   min-height: 14rem;
   background: var(--surface);
@@ -646,7 +655,7 @@ select:disabled {
   }
 
   .map-panel {
-    grid-template-rows: auto auto;
+    grid-template-rows: auto auto auto;
     border-right: 0;
     border-bottom: 1px solid var(--line);
   }
@@ -659,6 +668,14 @@ select:disabled {
   .map-legend {
     transform: translate(18px, 18px) scale(2);
     transform-origin: 0 0;
+  }
+
+  .map-point-detail {
+    display: block;
+  }
+
+  .map-tooltip {
+    display: none;
   }
 
   .chart-stack {

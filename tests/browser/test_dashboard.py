@@ -52,7 +52,7 @@ def test_dashboard_shell_has_taiwan_chinese_controls(
     assert page.get_by_label("熱帶氣旋").is_visible()
     assert page.get_by_role("group", name="最大風速單位").is_visible()
     assert page.get_by_role("button", name="重新讀取資料").is_visible()
-    assert page.locator("[aria-live='polite']").count() == 1
+    assert page.locator("#load-status[aria-live='polite']").count() == 1
     assert page.get_by_role("region", name="預報航跡").is_visible()
     assert page.get_by_role("region", name="最大風速").is_visible()
     assert page.get_by_role("region", name="中心氣壓").is_visible()
@@ -453,6 +453,90 @@ def test_mobile_map_frame_matches_projection_aspect_ratio(
     page.close()
 
 
+def test_mobile_map_selects_nearest_mean_point_with_a_24px_radius(
+    browser: Browser,
+    site_url: str,
+) -> None:
+    page = dashboard_page(
+        browser,
+        site_url,
+        viewport={"width": 390, "height": 844},
+    )
+    wait_for_dashboard(page)
+
+    detail = page.locator("#map-point-detail")
+    assert detail.is_visible()
+    assert float(detail.evaluate("(node) => parseFloat(getComputedStyle(node).fontSize)")) >= 12
+    assert "點選平均路徑節點" in detail.text_content()
+
+    result = page.evaluate(
+        """async () => {
+          const map = await import('/js/map.js');
+          const svg = document.querySelector('#forecast-map');
+          const detail = document.querySelector('#map-point-detail');
+          const storm = {
+            members: [],
+            mean: {points: [{
+              tau_h: 0,
+              valid_at: '2026-07-15T00:00:00Z',
+              lat: 20,
+              lon: 140,
+              wind_kt: 50,
+              pressure_hpa: 990,
+              member_count: 1,
+            }]},
+          };
+          const render = () => map.renderMap(
+            svg,
+            {type: 'FeatureCollection', features: []},
+            storm,
+          );
+          const dispatch = (offset, pointerType) => {
+            const plot = svg.querySelector('g[data-renderer="map"]');
+            const circle = plot.querySelector('circle.mean-point');
+            const point = new DOMPoint(
+              Number(circle.getAttribute('cx')),
+              Number(circle.getAttribute('cy')),
+            ).matrixTransform(circle.getScreenCTM());
+            plot.dispatchEvent(new PointerEvent('pointerdown', {
+              bubbles: true,
+              clientX: point.x + offset,
+              clientY: point.y,
+              pointerId: 1,
+              pointerType,
+              isPrimary: true,
+            }));
+          };
+
+          render();
+          svg.querySelector('circle.mean-point').focus();
+          const focusDetail = detail.textContent;
+          render();
+          dispatch(20, 'touch');
+          const nearDetail = detail.textContent;
+          render();
+          dispatch(30, 'touch');
+          const farDetail = detail.textContent;
+          dispatch(0, 'mouse');
+          return {
+            focusDetail,
+            nearDetail,
+            farDetail,
+            mouseDetail: detail.textContent,
+            tooltipDisplay: getComputedStyle(svg.querySelector('.map-tooltip')).display,
+          };
+        }"""
+    )
+
+    expected = "預報 0 小時｜20.0°N、140.0°E｜50.0 kt｜990.0 hPa｜1 位成員"
+    assert result["focusDetail"] == expected
+    assert result["nearDetail"] == expected
+    assert "點選平均路徑節點" in result["farDetail"]
+    assert "點選平均路徑節點" in result["mouseDetail"]
+    assert result["tooltipDisplay"] == "none"
+    page.close()
+
+
 def test_visual_tokens_and_reduced_motion_rule_are_present(
     browser: Browser,
     site_url: str,
@@ -599,6 +683,51 @@ def test_map_projection_and_geojson_path_helpers(
     assert result["multiPolygon"].count("Z") == 2
     assert "NaN" not in result["multiPolygon"]
     assert result["outsideProjection"] == ""
+    page.close()
+
+
+def test_map_tracks_use_continuous_longitudes_without_false_wraps(
+    browser: Browser,
+    site_url: str,
+) -> None:
+    page = browser.new_page()
+    page.goto(site_url)
+    result = page.evaluate(
+        """async () => {
+          const map = await import('/js/map.js');
+          const point = (tau_h, lon) => ({
+            tau_h,
+            valid_at: '2026-07-15T00:00:00Z',
+            lat: 20,
+            lon,
+            wind_kt: 50,
+            pressure_hpa: 990,
+            member_count: 1,
+          });
+          const storm = {
+            members: [
+              {id: 'west', points: [point(0, 81), point(6, 79)]},
+              {id: 'dateline', points: [point(0, 179), point(6, -179)]},
+            ],
+            mean: {points: [point(0, 79)]},
+          };
+          const svg = document.querySelector('#forecast-map');
+          map.renderMap(svg, {type: 'FeatureCollection', features: []}, storm);
+          return {
+            westProjection: map.projectPoint(79, 20, 1050, 600),
+            memberPaths: [...svg.querySelectorAll('path.track-member')]
+              .map((path) => path.getAttribute('d')),
+            meanCx: svg.querySelector('circle.mean-point').getAttribute('cx'),
+          };
+        }"""
+    )
+
+    assert result["westProjection"] == pytest.approx([-160, 350])
+    assert result["memberPaths"] == [
+        "M -140 350 L -160 350",
+        "M 840 350 L 860 350",
+    ]
+    assert result["meanCx"] == "-160"
     page.close()
 
 
@@ -847,6 +976,23 @@ def test_dashboard_controls_initialize_first_available_source_and_newest_cycle(
     assert page.locator("#forecast-map .map-legend").is_visible()
     assert page.locator("#forecast-map path.track-mean").count() == 1
     assert page.get_by_role("status").text_content() == "已載入 NCEP GEFS 的預報。"
+    page.close()
+
+
+@pytest.mark.parametrize("manifest_status", ["ok", "empty"])
+def test_dashboard_treats_old_latest_cycle_as_effectively_stale(
+    browser: Browser,
+    site_url: str,
+    manifest_status: str,
+) -> None:
+    page = dashboard_page(browser, site_url, cycle_fixture=f"expired-{manifest_status}")
+    wait_for_dashboard(page)
+
+    assert page.locator("#source-freshness").text_content() == "資料可能過時"
+    status = page.get_by_role("status")
+    assert status.get_attribute("data-state") == "stale"
+    assert "超過更新時限" in status.text_content()
+    assert "重新讀取資料" in status.text_content()
     page.close()
 
 

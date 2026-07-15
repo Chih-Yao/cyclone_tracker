@@ -1044,7 +1044,7 @@ Expected: tests fail because map and chart modules do not exist.
 
 - [ ] **Step 4: Implement dependency-free map rendering**
 
-`renderMap(svg, landGeoJson, storm, { unit })` clears only owned layers, sets a responsive `viewBox`, draws graticules, local land polygons, low-opacity member paths, a high-contrast mean path, mean forecast-hour circles, and accessible SVG `<title>` elements. Use a clipped equirectangular WNP view of 95°E–200°E and 5°S–55°N; transform track longitudes below 80°E by adding 360 so dateline-crossing paths remain continuous. Pointer/focus tooltips show forecast hour, coordinates, wind in the selected unit, pressure, and member count.
+`renderMap(svg, landGeoJson, storm, { unit })` clears only owned layers, sets a responsive `viewBox`, draws graticules, local land polygons, low-opacity member paths, a high-contrast mean path, mean forecast-hour circles, and accessible SVG `<title>` elements. Use a clipped equirectangular WNP view of 95°E–200°E and 5°S–55°N; choose each track's first longitude representation nearest the WNP view centre, then continuously unwrap each later valid point by ±360° relative to its predecessor, restarting after invalid points. Pointer/focus tooltips show forecast hour, coordinates, wind in the selected unit, pressure, and member count.
 
 Export pure helpers `projectPoint(lon, lat, width, height)` and `geoJsonToPath(feature, width, height)` for direct browser assertions. The renderer performs no fetch; the controller passes the already loaded local GeoJSON.
 

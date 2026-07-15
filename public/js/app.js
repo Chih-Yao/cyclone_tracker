@@ -65,6 +65,22 @@ function newestCycle(source) {
   )[0];
 }
 
+function effectiveSourceStatus(source) {
+  if (!source || source.status === "error" || source.status === "stale") {
+    return source?.status ?? null;
+  }
+  if (!["ok", "empty"].includes(source.status) || source.cycles.length === 0) {
+    return source.status;
+  }
+  const initializedAt = Date.parse(newestCycle(source).initialized_at);
+  const staleAfterHours = Number(source.stale_after_hours);
+  if (!Number.isFinite(initializedAt) || !Number.isFinite(staleAfterHours)) {
+    return source.status;
+  }
+  const ageMilliseconds = Date.now() - initializedAt;
+  return ageMilliseconds > staleAfterHours * 60 * 60 * 1000 ? "stale" : source.status;
+}
+
 function utcLabel(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
@@ -148,6 +164,7 @@ function syncDisabledState(busy) {
 function syncTelemetry() {
   const source = selectedSource();
   const storm = selectedStorm();
+  const sourceStatus = effectiveSourceStatus(source);
   view.activeStorm.textContent = storm ? stormLabel(storm) : "這個起報時間沒有氣旋";
   view.generatedAt.textContent = state.manifest ? utcLabel(state.manifest.generated_at) : "—";
   const freshness = {
@@ -156,7 +173,7 @@ function syncTelemetry() {
     stale: "資料可能過時",
     error: "更新失敗／保留舊資料",
   };
-  view.freshness.textContent = source ? freshness[source.status] : "沒有可用資料";
+  view.freshness.textContent = source ? freshness[sourceStatus] : "沒有可用資料";
 
   view.attribution.replaceChildren();
   const label = document.createElement("span");
@@ -192,20 +209,21 @@ function renderAll() {
 
 function announceCurrentData() {
   const source = selectedSource();
-  if (!state.cycle || state.cycle.storms.length === 0) {
-    setStatus(
-      "這個起報時間沒有西北太平洋氣旋。可改選其他起報時間或重新讀取資料。",
-      "empty",
-    );
-  } else if (source.status === "stale") {
+  const sourceStatus = effectiveSourceStatus(source);
+  if (sourceStatus === "stale") {
     setStatus(
       "這個資料來源已超過更新時限；目前顯示最後成功資料。可重新讀取資料。",
       "stale",
     );
-  } else if (source.status === "error") {
+  } else if (sourceStatus === "error") {
     setStatus(
       "資料來源更新失敗；目前顯示最後成功資料。可重新讀取資料。",
       "error",
+    );
+  } else if (!state.cycle || state.cycle.storms.length === 0) {
+    setStatus(
+      "這個起報時間沒有西北太平洋氣旋。可改選其他起報時間或重新讀取資料。",
+      "empty",
     );
   } else {
     setStatus(`已載入 ${source.name_zh_tw} 的預報。`, "ready");

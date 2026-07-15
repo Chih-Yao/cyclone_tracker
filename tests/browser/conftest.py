@@ -47,6 +47,8 @@ def cycle_fixture() -> dict:
 
 
 def install_fixture_routes(page: Page, variant: str = "normal") -> None:
+    page.clock.set_fixed_time("2026-07-15T06:00:00Z")
+
     def fulfill_data(route) -> None:
         path = urlparse(route.request.url).path
         if path == "/data/manifest.json":
@@ -61,6 +63,17 @@ def install_fixture_routes(page: Page, variant: str = "normal") -> None:
                 )
                 return
             fixture_name = "manifest.json"
+            if variant in {"expired-ok", "expired-empty"}:
+                manifest = json.loads((FRONTEND_FIXTURES / fixture_name).read_text())
+                source = next(source for source in manifest["sources"] if source["id"] == "gefs")
+                source["status"] = variant.removeprefix("expired-")
+                source["stale_after_hours"] = 1
+                route.fulfill(
+                    status=200,
+                    body=json.dumps(manifest),
+                    content_type="application/json",
+                )
+                return
         else:
             fixture_name = CYCLE_FIXTURES.get(path)
             if fixture_name is None:

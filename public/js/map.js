@@ -9,9 +9,11 @@ const VIEW = Object.freeze({
   width: 1050,
   height: 600,
 });
+const POINT_DETAIL_HINT = "點選平均路徑節點查看完整預報資料。";
+const TOUCH_POINT_RADIUS_PX = 24;
 
-function normalizePacificLongitude(lon) {
-  return lon < 80 ? lon + 360 : lon;
+function longitudeNearestReference(lon, reference) {
+  return lon + Math.round((reference - lon) / 360) * 360;
 }
 
 function compactNumber(value) {
@@ -36,7 +38,7 @@ export function projectPoint(lon, lat, width = VIEW.width, height = VIEW.height)
   if (![lon, lat, width, height].every(Number.isFinite) || width <= 0 || height <= 0) {
     return null;
   }
-  const normalizedLon = normalizePacificLongitude(lon);
+  const normalizedLon = longitudeNearestReference(lon, (VIEW.minLon + VIEW.maxLon) / 2);
   return [
     ((normalizedLon - VIEW.minLon) / (VIEW.maxLon - VIEW.minLon)) * width,
     ((VIEW.maxLat - lat) / (VIEW.maxLat - VIEW.minLat)) * height,
@@ -223,18 +225,22 @@ export function geoJsonToPath(feature, width = VIEW.width, height = VIEW.height)
 
 function linePath(points, width, height) {
   let segmentOpen = false;
+  let previousLongitude = null;
   const commands = [];
   for (const point of points ?? []) {
-    const projected = projectPoint(point?.lon, point?.lat, width, height);
-    if (projected === null) {
+    if (!Number.isFinite(point?.lon) || !Number.isFinite(point?.lat)) {
       segmentOpen = false;
+      previousLongitude = null;
       continue;
     }
-    const [x, y] = projected;
+    const reference = previousLongitude ?? (VIEW.minLon + VIEW.maxLon) / 2;
+    const longitude = longitudeNearestReference(point.lon, reference);
+    const [x, y] = projectUnwrappedPoint(longitude, point.lat, width, height);
     commands.push(
       `${segmentOpen ? "L" : "M"} ${compactNumber(x)} ${compactNumber(y)}`,
     );
     segmentOpen = true;
+    previousLongitude = longitude;
   }
   return commands.join(" ");
 }
@@ -328,6 +334,42 @@ function hideTooltip(tooltip) {
   tooltip.setAttribute("aria-hidden", "true");
 }
 
+function updatePointDetail(detail, label = POINT_DETAIL_HINT) {
+  if (detail) {
+    detail.textContent = label;
+  }
+}
+
+function selectNearestMeanPoint(event, svg, plot, points, tooltip, detail, width) {
+  if (!["touch", "pen"].includes(event.pointerType) || points.length === 0) {
+    return;
+  }
+  const matrix = plot.getScreenCTM();
+  if (matrix === null) {
+    return;
+  }
+  const clientPoint = svg.createSVGPoint();
+  clientPoint.x = event.clientX;
+  clientPoint.y = event.clientY;
+  const pointer = clientPoint.matrixTransform(matrix.inverse());
+  let nearest = null;
+  for (const point of points) {
+    const deltaX = pointer.x - point.x;
+    const deltaY = pointer.y - point.y;
+    const screenDistance = Math.hypot(
+      matrix.a * deltaX + matrix.c * deltaY,
+      matrix.b * deltaX + matrix.d * deltaY,
+    );
+    if (nearest === null || screenDistance < nearest.distance) {
+      nearest = { ...point, distance: screenDistance };
+    }
+  }
+  if (nearest.distance <= TOUCH_POINT_RADIUS_PX) {
+    updatePointDetail(detail, nearest.label);
+    showTooltip(tooltip, nearest.label, nearest.x, nearest.y, width);
+  }
+}
+
 function landFeatures(landGeoJson) {
   if (landGeoJson?.type === "FeatureCollection" && Array.isArray(landGeoJson.features)) {
     return landGeoJson.features;
@@ -340,6 +382,8 @@ export function renderMap(svg, landGeoJson, storm, { unit = "kt" } = {}) {
     throw new TypeError("renderMap 需要 SVG 元素");
   }
   formatWind(0, unit);
+  const pointDetail = svg.closest(".map-panel")?.querySelector(".map-point-detail") ?? null;
+  updatePointDetail(pointDetail);
   const { width, height } = VIEW;
   svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
   svg.querySelectorAll(":scope > [data-renderer='map']").forEach((node) => node.remove());
@@ -386,6 +430,7 @@ export function renderMap(svg, landGeoJson, storm, { unit = "kt" } = {}) {
 
   plot.append(createLegend());
   const tooltip = createTooltip();
+  const meanPointTargets = [];
   for (const point of meanPoints) {
     const projected = projectPoint(point?.lon, point?.lat, width, height);
     if (projected === null) {
@@ -403,12 +448,28 @@ export function renderMap(svg, landGeoJson, storm, { unit = "kt" } = {}) {
       "aria-label": label,
     });
     appendTitle(circle, label);
-    circle.addEventListener("pointerenter", () => showTooltip(tooltip, label, x, y, width));
+    const revealPoint = () => {
+      updatePointDetail(pointDetail, label);
+      showTooltip(tooltip, label, x, y, width);
+    };
+    circle.addEventListener("pointerenter", revealPoint);
     circle.addEventListener("pointerleave", () => hideTooltip(tooltip));
-    circle.addEventListener("focus", () => showTooltip(tooltip, label, x, y, width));
+    circle.addEventListener("focus", revealPoint);
     circle.addEventListener("blur", () => hideTooltip(tooltip));
     plot.append(circle);
+    meanPointTargets.push({ x, y, label });
   }
   plot.append(tooltip);
+  plot.addEventListener("pointerdown", (event) => {
+    selectNearestMeanPoint(
+      event,
+      svg,
+      plot,
+      meanPointTargets,
+      tooltip,
+      pointDetail,
+      width,
+    );
+  });
   svg.append(plot);
 }
