@@ -62,8 +62,8 @@ Vercel 不執行下載程式，也不保存 API key。v1 選定的 NCEP 與 ECMW
 
 - **IFS ENS**：ECMWF Open Data 的 `ifs / 0p25 / enfo / tf` BUFR。
 - **AIFS ENS**：ECMWF Open Data 的 `aifs-ens / 0p25 / enfo / tf` BUFR。
-- adapter 使用免 key 的 ECMWF Open Data HTTPS 端點，下載各 forecast step 的 tropical cyclone BUFR，並以 ecCodes 解碼 member、氣旋中心、最大風速與中心氣壓。
-- IFS ENS 的 00/12 UTC cycle 最長 360 小時，06/18 UTC cycle 最長 144 小時；AIFS ENS 依公開產品可用步長探索，不假設不存在的檔案為錯誤。
+- adapter 使用免 key 的 ECMWF Open Data HTTPS 端點；每個 cycle 只下載一個包含完整路徑的終端時效 tropical cyclone BUFR，並以 ecCodes 解碼 member、氣旋中心、最大風速與中心氣壓。
+- IFS ENS 的 00/12 UTC cycle 終端檔為 360 小時，06/18 UTC cycle 為 144 小時；AIFS ENS 的 00/06/12/18 UTC cycle 均為 360 小時。終端檔 404 視為該候選尚不可用並回退較舊 cycle，不得記成空 cycle。
 - BUFR 中的 SI 單位先保留來源值，再正規化為共同 schema。
 
 每個 adapter 對管線提供相同介面：來源識別、候選 cycle、下載解析結果與可判別的結果狀態。adapter 不負責寫 manifest、保存 cycle 或計算集合平均。

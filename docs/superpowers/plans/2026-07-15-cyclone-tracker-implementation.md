@@ -530,16 +530,16 @@ Define decoded-record fixtures without mocking normalization logic:
 ```python
 def test_build_ifs_tf_url_uses_official_open_data_layout() -> None:
     cycle = datetime(2026, 7, 15, 0, tzinfo=UTC)
-    assert build_tf_url("ifs-ens", cycle, 6) == (
+    assert build_tf_url("ifs-ens", cycle) == (
         "https://data.ecmwf.int/forecasts/20260715/00z/ifs/0p25/enfo/"
-        "20260715000000-6h-enfo-tf.bufr"
+        "20260715000000-360h-enfo-tf.bufr"
     )
 
 
 def test_normalize_bufr_records_converts_si_wind_and_filters_basin() -> None:
     records = [
-        BufrTrackRecord("WP", 9, "F001", 6, 15.0, 135.0, 51.4444444444, 96500.0, "YAGI"),
-        BufrTrackRecord("EP", 9, "F001", 6, 15.0, -120.0, 40.0, 98000.0, None),
+        BufrTrackRecord("09W", 1, 4, 6, 15.0, 135.0, 51.4444444444, 96500.0, "YAGI"),
+        BufrTrackRecord("09E", 1, 4, 6, 15.0, -120.0, 40.0, 98000.0, None),
     ]
     cycle = normalize_bufr_records("ifs-ens", datetime(2026, 7, 15, tzinfo=UTC), records)
     point = cycle.storms[0].members[0].points[0]
@@ -550,7 +550,9 @@ def test_normalize_bufr_records_converts_si_wind_and_filters_basin() -> None:
     assert point.pressure_hpa == 965.0
 ```
 
-Also assert IFS 00/12 steps end at 360h, IFS 06/18 end at 144h, AIFS ENS steps end at 360h, and duplicate member/tau records resolve deterministically.
+Also assert the URL matrix uses the only published terminal file per cycle: IFS 00/12 at
+360h, IFS 06/18 at 144h, and AIFS ENS 00/06/12/18 at 360h. Assert duplicate
+member/tau records resolve deterministically.
 
 - [ ] **Step 2: Run the tests and confirm RED**
 
@@ -560,17 +562,40 @@ Expected: collection fails because `cyclone_tracker.adapters.ecmwf` does not exi
 
 - [ ] **Step 3: Implement URL, decoded record normalization and ecCodes boundary**
 
-Implement `BufrTrackRecord` as a frozen dataclass with fields in the test order. `build_tf_url()` maps `ifs-ens` to URL segment `ifs` and `aifs-ens` to `aifs-ens`. `normalize_bufr_records()` converts `m/s × 3600 / 1852` to knots and Pa to hPa, applies WP/number filtering, classifies control/perturbed members, and stores `MeanTrack(points=compute_mean_track(members))`.
+Implement `BufrTrackRecord` as a frozen dataclass with the raw storm identifier, ensemble
+member number and ensemble forecast type in the test order. `build_tf_url()` maps `ifs-ens`
+to URL segment `ifs` and `aifs-ens` to `aifs-ens`, then selects the source/cycle terminal
+step described above. `normalize_bufr_records()` parses identifiers such as `09W`, converts
+`m/s × 3600 / 1852` to knots and Pa to hPa, applies the agreed `01W`–`49W` and
+`90W`–`99W` filter, classifies control/perturbed/deterministic members from the BUFR
+forecast type, and stores `MeanTrack(points=compute_mean_track(members))`.
 
-`decode_bufr_file(path)` is the only function importing the low-level ecCodes API. It iterates BUFR messages, enables unpacking, reads the storm identifier, ensemble member number, forecast period, centre latitude/longitude, maximum wind and central pressure keys with the official missing-value checks, emits `BufrTrackRecord`, and always releases every ecCodes handle in `finally`.
+`decode_bufr_file(path)` is the only function importing the low-level ecCodes API. It iterates
+BUFR messages, enables unpacking, and reads `stormIdentifier`, `longStormName`,
+`ensembleMemberNumber` and `ensembleForecastType`. It follows ECMWF's ranked descriptors:
+tau 0 uses `#2#latitude/#2#longitude`, `#1#pressureReducedToMeanSeaLevel` and
+`#1#windSpeedAt10M`; forecast rank `i` uses `#i#timePeriod`, centre coordinate rank
+`2*i+2`, and pressure/wind rank `i+1`. Array values of length one are broadcast to
+`numberOfSubsets`; any other length must equal the subset count. Check every value against
+the ecCodes missing sentinels and finite/plausible model bounds, emit `BufrTrackRecord`, and
+always release every ecCodes handle in `finally`. Add the platform ecCodes runtime package
+required by the Python binding and verify `uv run python -m eccodes selfcheck`.
 
-- [ ] **Step 4: Implement independent step download and latest-cycle selection**
+- [ ] **Step 4: Implement terminal-file download and latest-cycle selection**
 
-`EcmwfBufrAdapter.fetch_latest()` tries at most eight candidate cycles, probes step 0 before scheduling the full source-specific step list, downloads each available step to `TemporaryDirectory`, decodes it immediately, and continues across a missing later step. It returns `empty` only after at least one BUFR file decoded successfully with no supported WP storm. A failed or malformed step is recorded; the cycle returns `error` when no step can be decoded.
+`EcmwfBufrAdapter.fetch_latest()` tries at most eight six-hour candidate cycles and requests
+only that candidate's terminal BUFR URL. HTTP 404 continues to the older candidate; eight
+404 responses return `unavailable`, never `empty`. A network failure, non-404 HTTP failure,
+or malformed 200 payload returns a typed `error`. A successfully decoded BUFR returns `ok`,
+or `empty` only when it contains no supported WP storm. Download to `TemporaryDirectory`,
+decode immediately, and never treat an absent terminal file as proof of an empty cycle.
 
 - [ ] **Step 5: Verify ECMWF behavior and optional live smoke marker**
 
-Add a `network` pytest marker test that downloads only step 0 when `RUN_NETWORK_TESTS=1`; otherwise it is skipped. Run:
+Add a `network` pytest marker test that downloads only the source/cycle terminal file when
+`RUN_NETWORK_TESTS=1`; otherwise it is skipped. Cover newest-404 fallback, eight-404
+unavailable, scalar-array broadcasting, partial missing sentinels, malformed array lengths,
+and ecCodes handle release in offline tests. Run:
 
 ```bash
 uv run pytest tests/test_ecmwf.py -v
