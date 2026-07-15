@@ -1,0 +1,24 @@
+# Local-only research notes
+/docs/private/google-fnv3-research.md
+
+# Local design and brainstorming artifacts
+/.superpowers/
+/cyclone_tracker_goal.jpg
+
+# Local environment and secrets
+/.venv/
+/.env
+/.env.*
+!/.env.example
+
+# Python caches and test artifacts
+__pycache__/
+*.py[cod]
+/.pytest_cache/
+/.ruff_cache/
+/.coverage
+/htmlcov/
+
+# Local downloads and temporary files
+/.cache/
+/tmp/
