@@ -616,8 +616,8 @@ def test_map_and_charts_have_accessible_responsive_svg_shells(
 
     expected_names = {
         "#forecast-map": "西北太平洋集合預報航跡圖",
-        "#wind-chart": "平均最大風速預報圖",
-        "#pressure-chart": "平均中心氣壓預報圖",
+        "#wind-chart": "最大風速預報圖",
+        "#pressure-chart": "中心氣壓預報圖",
     }
     for selector, name in expected_names.items():
         svg = page.locator(selector)
