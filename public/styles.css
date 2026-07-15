@@ -57,6 +57,13 @@ a:focus-visible,
   outline-offset: 3px;
 }
 
+.mean-point:focus-visible,
+.series-point:focus-visible {
+  outline: none;
+  stroke: var(--sea-700);
+  stroke-width: 5;
+}
+
 .visually-hidden {
   position: absolute;
   width: 1px;
@@ -359,13 +366,142 @@ h2 {
   border-bottom: 3px solid var(--pressure);
 }
 
-.plot-placeholder {
-  margin: 1rem;
-  padding: 0.65rem 0.8rem;
-  border: 1px solid var(--track-mist);
-  color: var(--ink-600);
-  font-size: 0.78rem;
-  text-align: center;
+.plot-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  font-family: var(--data-font);
+}
+
+.map-ocean {
+  fill: var(--sea-100);
+}
+
+.graticule,
+.land,
+.track-member,
+.track-mean,
+.gridline,
+.axis-line,
+.mean-series {
+  vector-effect: non-scaling-stroke;
+}
+
+.graticule {
+  fill: none;
+  stroke: var(--track-mist);
+  stroke-dasharray: 2 5;
+  stroke-opacity: 0.48;
+  stroke-width: 1;
+}
+
+.land {
+  fill: var(--land-200);
+  fill-rule: evenodd;
+  stroke: #8fae9c;
+  stroke-linejoin: round;
+  stroke-width: 0.7;
+}
+
+.track-member {
+  fill: none;
+  stroke: var(--track-mist);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-opacity: 0.46;
+  stroke-width: 1.5;
+}
+
+.track-mean {
+  fill: none;
+  stroke: var(--ocean-900);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 3.5;
+}
+
+.mean-point {
+  fill: var(--surface);
+  stroke: var(--ocean-900);
+  stroke-width: 2.5;
+  cursor: help;
+  vector-effect: non-scaling-stroke;
+}
+
+.mean-point.major-hour {
+  fill: var(--sea-700);
+  stroke: var(--surface);
+}
+
+.map-tooltip {
+  pointer-events: none;
+}
+
+.map-tooltip rect {
+  fill: var(--surface);
+  stroke: var(--ocean-900);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.map-tooltip text {
+  fill: var(--ocean-900);
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+.forecast-chart {
+  background: var(--surface);
+}
+
+.gridline {
+  stroke: var(--sea-100);
+  stroke-width: 1;
+}
+
+.axis-line {
+  stroke: var(--line);
+  stroke-width: 1;
+}
+
+.axis-tick,
+.axis-label,
+.axis-unit,
+.empty-series {
+  fill: var(--ink-600);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.axis-label,
+.axis-unit {
+  font-weight: 700;
+  letter-spacing: 0.035em;
+}
+
+.mean-series {
+  fill: none;
+  stroke: var(--sea-700);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2.75;
+}
+
+#pressure-chart .mean-series {
+  stroke: var(--pressure);
+}
+
+.series-point {
+  fill: var(--surface);
+  stroke: var(--sea-700);
+  stroke-width: 2.25;
+  cursor: help;
+  vector-effect: non-scaling-stroke;
+}
+
+#pressure-chart .series-point {
+  stroke: var(--pressure);
 }
 
 .disclaimer-rail {
@@ -440,13 +576,14 @@ h2 {
   }
 
   .map-panel {
-    grid-template-rows: auto minmax(22rem, 55vh);
+    grid-template-rows: auto auto;
     border-right: 0;
     border-bottom: 1px solid var(--line);
   }
 
   .map-frame {
-    min-height: 22rem;
+    min-height: 0;
+    aspect-ratio: 7 / 4;
   }
 
   .chart-stack {

@@ -344,6 +344,23 @@ def test_mobile_layout_is_one_column_without_horizontal_scroll(
     page.close()
 
 
+def test_mobile_map_frame_matches_projection_aspect_ratio(
+    browser: Browser,
+    site_url: str,
+) -> None:
+    page = dashboard_page(
+        browser,
+        site_url,
+        viewport={"width": 390, "height": 844},
+    )
+    frame_box = page.locator(".map-frame").bounding_box()
+    svg_box = page.locator("#forecast-map").bounding_box()
+    assert frame_box is not None and svg_box is not None
+    assert frame_box["height"] / frame_box["width"] == pytest.approx(600 / 1050, abs=0.02)
+    assert svg_box == pytest.approx(frame_box)
+    page.close()
+
+
 def test_visual_tokens_and_reduced_motion_rule_are_present(
     browser: Browser,
     site_url: str,
@@ -410,6 +427,272 @@ def test_forecast_guidance_uses_the_visually_hidden_utility(
         "height": "1px",
         "overflow": "hidden",
     }
+    page.close()
+
+
+def test_map_and_charts_have_accessible_responsive_svg_shells(
+    browser: Browser,
+    site_url: str,
+) -> None:
+    page = browser.new_page()
+    page.goto(site_url)
+
+    expected_names = {
+        "#forecast-map": "西北太平洋集合預報航跡圖",
+        "#wind-chart": "平均最大風速預報圖",
+        "#pressure-chart": "平均中心氣壓預報圖",
+    }
+    for selector, name in expected_names.items():
+        svg = page.locator(selector)
+        assert svg.count() == 1
+        assert svg.get_attribute("role") == "img"
+        assert svg.get_attribute("viewBox") is not None
+        assert svg.locator("title").count() == 1
+        assert svg.locator("desc").count() == 1
+        assert page.get_by_role("img", name=name).count() == 1
+
+    assert page.locator(".plot-placeholder").count() == 0
+    page.close()
+
+
+def test_map_projection_and_geojson_path_helpers(
+    browser: Browser,
+    site_url: str,
+) -> None:
+    page = browser.new_page()
+    page.goto(site_url)
+    result = page.evaluate(
+        """async () => {
+          const map = await import('/js/map.js');
+          const polygon = {
+            type: 'Feature',
+            geometry: {
+              type: 'Polygon',
+              coordinates: [[[105, 5], [115, 5], [115, 15], [105, 5]]],
+            },
+          };
+          const multiPolygon = {
+            type: 'Feature',
+            geometry: {
+              type: 'MultiPolygon',
+              coordinates: [
+                [[[105, 5], [115, 5], [115, 15], [105, 5]]],
+                [[[-175, 20], [-170, 20], [-170, 25], [-175, 20]]],
+              ],
+            },
+          };
+          const outsideProjection = {
+            type: 'Feature',
+            geometry: {
+              type: 'Polygon',
+              coordinates: [[[75, 0], [85, 0], [85, 10], [75, 10], [75, 0]]],
+            },
+          };
+          return {
+            northWest: map.projectPoint(95, 55, 1050, 600),
+            southEast: map.projectPoint(200, -5, 1050, 600),
+            dateline: map.projectPoint(-175, 25, 1050, 600),
+            polygon: map.geoJsonToPath(polygon, 1050, 600),
+            multiPolygon: map.geoJsonToPath(multiPolygon, 1050, 600),
+            outsideProjection: map.geoJsonToPath(outsideProjection, 1050, 600),
+          };
+        }"""
+    )
+    assert result["northWest"] == pytest.approx([0, 0])
+    assert result["southEast"] == pytest.approx([1050, 600])
+    assert result["dateline"] == pytest.approx([900, 300])
+    assert result["polygon"].count("M ") == 1
+    assert result["polygon"].count("Z") == 1
+    assert result["multiPolygon"].count("M ") == 2
+    assert result["multiPolygon"].count("Z") == 2
+    assert "NaN" not in result["multiPolygon"]
+    assert result["outsideProjection"] == ""
+    page.close()
+
+
+def test_map_draws_members_mean_and_local_land(
+    browser: Browser,
+    site_url: str,
+    cycle_fixture: dict,
+) -> None:
+    page = dashboard_page(browser, site_url)
+    requested_urls: list[str] = []
+    page.on("request", lambda request: requested_urls.append(request.url))
+    page.evaluate(
+        """async (storm) => {
+          const map = await import('/js/map.js');
+          const land = await (await fetch('/assets/ne_110m_land.geojson')).json();
+          map.renderMap(document.querySelector('#forecast-map'), land, storm, {unit: 'kt'});
+        }""",
+        cycle_fixture["storms"][0],
+    )
+
+    assert page.locator("#forecast-map path.land").count() > 0
+    assert page.locator("#forecast-map path.track-member").count() == 2
+    assert page.locator("#forecast-map path.track-mean").count() == 1
+    assert page.locator("#forecast-map circle.mean-point").count() == 3
+    assert page.locator("#forecast-map path.graticule").count() > 0
+    assert any(url.endswith("/assets/ne_110m_land.geojson") for url in requested_urls)
+    expected_host = urlparse(site_url).netloc
+    assert all(urlparse(url).netloc == expected_host for url in requested_urls)
+
+    point = page.locator("#forecast-map circle.mean-point").nth(1)
+    assert point.get_attribute("tabindex") == "0"
+    title = point.locator("title").text_content()
+    assert title is not None
+    assert "預報 6 小時" in title
+    assert "18.9°N、131.3°E" in title
+    assert "97.5 kt" in title
+    assert "952.5 hPa" in title
+    assert "2 位成員" in title
+    point.focus()
+    assert page.locator("#forecast-map .map-tooltip").get_attribute("visibility") == "visible"
+    assert "預報 6 小時" in page.locator("#forecast-map .map-tooltip").text_content()
+    page.close()
+
+
+def test_map_renderer_has_no_fetch_and_replaces_only_owned_layers(
+    browser: Browser,
+    site_url: str,
+    cycle_fixture: dict,
+) -> None:
+    page = dashboard_page(browser, site_url)
+    result = page.evaluate(
+        """async (storm) => {
+          const map = await import('/js/map.js');
+          const svg = document.querySelector('#forecast-map');
+          const persistent = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+          persistent.classList.add('persistent-test-node');
+          svg.append(persistent);
+          let fetchCalls = 0;
+          const originalFetch = window.fetch;
+          window.fetch = () => {
+            fetchCalls += 1;
+            throw new Error('renderMap must not fetch');
+          };
+          try {
+            const land = {
+              type: 'FeatureCollection',
+              features: [{
+                type: 'Feature',
+                geometry: {
+                  type: 'Polygon',
+                  coordinates: [[[120, 10], [125, 10], [125, 15], [120, 10]]],
+                },
+              }],
+            };
+            map.renderMap(svg, land, storm, {unit: 'kt'});
+            map.renderMap(svg, land, storm, {unit: 'm/s'});
+          } finally {
+            window.fetch = originalFetch;
+          }
+          return {
+            fetchCalls,
+            persistentNodes: svg.querySelectorAll('.persistent-test-node').length,
+            ownedLayers: svg.querySelectorAll('[data-renderer="map"]').length,
+            meanPoints: svg.querySelectorAll('circle.mean-point').length,
+            pointTitle: svg.querySelector('circle.mean-point title').textContent,
+          };
+        }""",
+        cycle_fixture["storms"][0],
+    )
+    assert result == {
+        "fetchCalls": 0,
+        "persistentNodes": 1,
+        "ownedLayers": 2,
+        "meanPoints": 3,
+        "pointTitle": ("預報 0 小時｜18.1°N、132.1°E｜39.9 m/s｜972.5 hPa｜2 位成員"),
+    }
+    page.close()
+
+
+def test_charts_render_axes_units_and_accessible_points(
+    browser: Browser,
+    site_url: str,
+    cycle_fixture: dict,
+) -> None:
+    page = dashboard_page(browser, site_url)
+    result = page.evaluate(
+        """async (mean) => {
+          const charts = await import('/js/charts.js');
+          let fetchCalls = 0;
+          const originalFetch = window.fetch;
+          window.fetch = () => {
+            fetchCalls += 1;
+            throw new Error('chart renderers must not fetch');
+          };
+          try {
+            charts.renderWindChart(
+              document.querySelector('#wind-chart'), mean.points, {unit: 'kt'}
+            );
+            charts.renderPressureChart(
+              document.querySelector('#pressure-chart'), mean.points
+            );
+          } finally {
+            window.fetch = originalFetch;
+          }
+          return fetchCalls;
+        }""",
+        cycle_fixture["storms"][0]["mean"],
+    )
+    assert result == 0
+    for selector in ("#wind-chart", "#pressure-chart"):
+        assert page.locator(f"{selector} path.mean-series").count() == 1
+        assert page.locator(f"{selector} line.gridline").count() >= 4
+        assert page.locator(f"{selector} .axis-tick").count() >= 4
+        assert page.locator(f"{selector} circle.series-point").count() == 3
+        point = page.locator(f"{selector} circle.series-point").first
+        assert point.get_attribute("tabindex") == "0"
+        assert point.locator("title").count() == 1
+
+    assert page.locator("#wind-chart").get_by_text("knots", exact=True).is_visible()
+    assert page.locator("#pressure-chart").get_by_text("hPa", exact=True).is_visible()
+    wind_title = page.locator("#wind-chart circle.series-point title").first.text_content()
+    pressure_title = page.locator("#pressure-chart circle.series-point title").first.text_content()
+    assert wind_title == "預報 0 小時｜最大風速 77.5 kt"
+    assert pressure_title == "預報 0 小時｜中心氣壓 972.5 hPa"
+    page.close()
+
+
+def test_charts_convert_wind_at_render_and_leave_null_gaps(
+    browser: Browser,
+    site_url: str,
+) -> None:
+    page = dashboard_page(browser, site_url)
+    result = page.evaluate(
+        """async () => {
+          const charts = await import('/js/charts.js');
+          const points = [
+            {tau_h: 0, wind_kt: 100, pressure_hpa: 1000},
+            {tau_h: 6, wind_kt: null, pressure_hpa: 990},
+            {tau_h: 12, wind_kt: 80, pressure_hpa: null},
+            {tau_h: 18, wind_kt: 60, pressure_hpa: 980},
+          ];
+          charts.renderWindChart(
+            document.querySelector('#wind-chart'), points, {unit: 'm/s'}
+          );
+          charts.renderPressureChart(document.querySelector('#pressure-chart'), points);
+          return {
+            windPath: document.querySelector('#wind-chart path.mean-series').getAttribute('d'),
+            pressurePath: document
+              .querySelector('#pressure-chart path.mean-series')
+              .getAttribute('d'),
+            windTitle: document.querySelector('#wind-chart circle.series-point title').textContent,
+            windPoints: document.querySelectorAll('#wind-chart circle.series-point').length,
+            pressurePoints: document.querySelectorAll('#pressure-chart circle.series-point').length,
+          };
+        }"""
+    )
+    assert result["windPath"].count("M ") == 2
+    assert result["windPath"].count("L ") == 1
+    assert result["pressurePath"].count("M ") == 2
+    assert result["pressurePath"].count("L ") == 1
+    assert "NaN" not in result["windPath"]
+    assert "NaN" not in result["pressurePath"]
+    assert result["windTitle"] == "預報 0 小時｜最大風速 51.4 m/s"
+    assert result["windPoints"] == 3
+    assert result["pressurePoints"] == 3
+    assert page.locator("#wind-chart").get_by_text("m/s", exact=True).is_visible()
     page.close()
 
 

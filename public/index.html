@@ -91,7 +91,19 @@
               <p class="section-note">集合成員與平均路徑</p>
             </div>
             <div class="plot-frame map-frame">
-              <p class="plot-placeholder">選取預報後顯示集合航跡帶</p>
+              <svg
+                id="forecast-map"
+                class="plot-svg forecast-map"
+                viewBox="0 0 1050 600"
+                preserveAspectRatio="xMidYMid meet"
+                role="img"
+                aria-labelledby="forecast-map-title forecast-map-description"
+              >
+                <title id="forecast-map-title">西北太平洋集合預報航跡圖</title>
+                <desc id="forecast-map-description">
+                  顯示本機陸地底圖、個別集合成員航跡與集合平均預報路徑。
+                </desc>
+              </svg>
             </div>
           </section>
 
@@ -105,7 +117,19 @@
                 <p class="section-note">平均與成員範圍</p>
               </div>
               <div class="plot-frame chart-frame">
-                <p class="plot-placeholder">等待風速資料</p>
+                <svg
+                  id="wind-chart"
+                  class="plot-svg forecast-chart"
+                  viewBox="0 0 640 320"
+                  preserveAspectRatio="xMidYMid meet"
+                  role="img"
+                  aria-labelledby="wind-chart-title wind-chart-description"
+                >
+                  <title id="wind-chart-title">平均最大風速預報圖</title>
+                  <desc id="wind-chart-description">
+                    依預報時效顯示集合平均最大風速。
+                  </desc>
+                </svg>
               </div>
             </section>
 
@@ -118,7 +142,19 @@
                 <p class="section-note">單位 hPa</p>
               </div>
               <div class="plot-frame chart-frame pressure-frame">
-                <p class="plot-placeholder">等待氣壓資料</p>
+                <svg
+                  id="pressure-chart"
+                  class="plot-svg forecast-chart"
+                  viewBox="0 0 640 320"
+                  preserveAspectRatio="xMidYMid meet"
+                  role="img"
+                  aria-labelledby="pressure-chart-title pressure-chart-description"
+                >
+                  <title id="pressure-chart-title">平均中心氣壓預報圖</title>
+                  <desc id="pressure-chart-description">
+                    依預報時效顯示集合平均中心氣壓。
+                  </desc>
+                </svg>
               </div>
             </section>
           </div>
