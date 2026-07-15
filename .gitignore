@@ -22,4 +22,5 @@ __pycache__/
 
 # Local downloads and temporary files
 /.cache/
+/.firecrawl/
 /tmp/
