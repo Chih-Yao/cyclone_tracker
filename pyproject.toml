@@ -1,0 +1,31 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "cyclone-tracker"
+version = "0.1.0"
+description = "Static Western North Pacific cyclone ensemble tracker"
+requires-python = ">=3.12"
+dependencies = ["eccodes", "httpx", "pydantic"]
+
+[project.scripts]
+cyclone-tracker = "cyclone_tracker.cli:main"
+
+[dependency-groups]
+dev = ["playwright", "pyyaml", "pytest", "pytest-cov", "ruff"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/cyclone_tracker"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+markers = ["network: uses live external forecast endpoints"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
