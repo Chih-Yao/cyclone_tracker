@@ -991,7 +991,11 @@ def test_charts_render_ecmwf_members_below_mean_and_break_gaps(
                 return coordinates.filter((_, index) => index % 2 === 1);
               }),
               meanAfterMembers: members.every(
-                (path) => Boolean(path.compareDocumentPosition(mean) & Node.DOCUMENT_POSITION_FOLLOWING)
+                (path) =>
+                  Boolean(
+                    path.compareDocumentPosition(mean) &
+                      Node.DOCUMENT_POSITION_FOLLOWING
+                  )
               ),
             };
           };
