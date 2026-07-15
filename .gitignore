@@ -3,6 +3,7 @@
 
 # Local design and brainstorming artifacts
 /.superpowers/
+/.worktrees/
 /cyclone_tracker_goal.jpg
 
 # Local environment and secrets
