@@ -980,6 +980,10 @@ def test_charts_render_ecmwf_members_below_mean_and_break_gaps(
             const members = [...svg.querySelectorAll('path.member-series')];
             const mean = svg.querySelector('path.mean-series');
             return {
+              yTicks: [...svg.querySelectorAll('.axis-tick')]
+                .map((tick) => tick.textContent)
+                .filter((label) => !label.startsWith('+'))
+                .map(Number),
               memberPaths: members.map((path) => path.getAttribute('d')),
               memberTitles: members.map((path) => path.querySelector('title').textContent),
               memberYCoordinates: members.flatMap((path) => {
@@ -1004,6 +1008,7 @@ def test_charts_render_ecmwf_members_below_mean_and_break_gaps(
         assert all("NaN" not in path for path in chart["memberPaths"])
         assert chart["memberPaths"][0].count("M ") == 2
         assert all(28 <= y <= 270 for y in chart["memberYCoordinates"])
+    assert max(result["wind"]["yTicks"]) == pytest.approx(53.0, abs=0.1)
     page.close()
 
 

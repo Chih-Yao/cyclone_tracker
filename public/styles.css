@@ -745,6 +745,10 @@ select:disabled {
     stroke: GrayText;
   }
 
+  .member-series {
+    stroke-opacity: 1;
+  }
+
   .track-mean,
   .legend-mean,
   .mean-series,
