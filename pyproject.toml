@@ -7,7 +7,7 @@ name = "cyclone-tracker"
 version = "0.1.0"
 description = "Static Western North Pacific cyclone ensemble tracker"
 requires-python = ">=3.12"
-dependencies = ["eccodes", "httpx", "pydantic"]
+dependencies = ["eccodes", "eccodeslib", "httpx", "pydantic"]
 
 [project.scripts]
 cyclone-tracker = "cyclone_tracker.cli:main"
