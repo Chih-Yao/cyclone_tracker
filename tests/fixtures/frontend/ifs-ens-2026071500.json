@@ -13,13 +13,27 @@
           "id": "cf00",
           "member_type": "control",
           "points": [
-            {"tau_h": 0, "valid_at": "2026-07-15T00:00:00Z", "lat": 18.2, "lon": 131.8, "wind_kt": 82.0, "wind_source_value": 82.0, "wind_source_unit": "kt", "pressure_hpa": 968.0}
+            {"tau_h": 0, "valid_at": "2026-07-15T00:00:00Z", "lat": 18.2, "lon": 131.8, "wind_kt": 100.0, "wind_source_value": 100.0, "wind_source_unit": "kt", "pressure_hpa": 1000.0},
+            {"tau_h": 6, "valid_at": "2026-07-15T06:00:00Z", "lat": 18.9, "lon": 131.3, "wind_kt": 90.0, "wind_source_value": 90.0, "wind_source_unit": "kt", "pressure_hpa": null},
+            {"tau_h": 18, "valid_at": "2026-07-15T18:00:00Z", "lat": 20.1, "lon": 130.0, "wind_kt": 70.0, "wind_source_value": 70.0, "wind_source_unit": "kt", "pressure_hpa": 980.0}
+          ]
+        },
+        {
+          "id": "pf01",
+          "member_type": "perturbed",
+          "points": [
+            {"tau_h": 0, "valid_at": "2026-07-15T00:00:00Z", "lat": 18.0, "lon": 132.0, "wind_kt": 80.0, "wind_source_value": 80.0, "wind_source_unit": "kt", "pressure_hpa": 990.0},
+            {"tau_h": 6, "valid_at": "2026-07-15T06:00:00Z", "lat": 18.7, "lon": 131.5, "wind_kt": 85.0, "wind_source_value": 85.0, "wind_source_unit": "kt", "pressure_hpa": 985.0},
+            {"tau_h": 12, "valid_at": "2026-07-15T12:00:00Z", "lat": 19.4, "lon": 130.8, "wind_kt": 75.0, "wind_source_value": 75.0, "wind_source_unit": "kt", "pressure_hpa": 975.0}
           ]
         }
       ],
       "mean": {
         "points": [
-          {"tau_h": 0, "valid_at": "2026-07-15T00:00:00Z", "lat": 18.2, "lon": 131.8, "wind_kt": 82.0, "pressure_hpa": 968.0, "member_count": 1}
+          {"tau_h": 0, "valid_at": "2026-07-15T00:00:00Z", "lat": 18.1, "lon": 131.9, "wind_kt": 90.0, "pressure_hpa": 995.0, "member_count": 2},
+          {"tau_h": 6, "valid_at": "2026-07-15T06:00:00Z", "lat": 18.8, "lon": 131.4, "wind_kt": 87.5, "pressure_hpa": 985.0, "member_count": 2},
+          {"tau_h": 12, "valid_at": "2026-07-15T12:00:00Z", "lat": 19.4, "lon": 130.8, "wind_kt": 75.0, "pressure_hpa": 975.0, "member_count": 1},
+          {"tau_h": 18, "valid_at": "2026-07-15T18:00:00Z", "lat": 20.1, "lon": 130.0, "wind_kt": 70.0, "pressure_hpa": 980.0, "member_count": 1}
         ]
       }
     }

@@ -1,3 +1,4 @@
+import json
 from urllib.parse import urlparse
 
 import pytest
@@ -950,6 +951,59 @@ def test_charts_convert_wind_at_render_and_leave_null_gaps(
     assert result["windPoints"] == 3
     assert result["pressurePoints"] == 3
     assert page.locator("#wind-chart").get_by_text("m/s", exact=True).is_visible()
+    page.close()
+
+
+def test_charts_render_ecmwf_members_below_mean_and_break_gaps(
+    browser: Browser,
+    site_url: str,
+) -> None:
+    page = dashboard_page(browser, site_url)
+    storm = json.loads(
+        (FRONTEND_FIXTURES / "ifs-ens-2026071500.json").read_text()
+    )["storms"][0]
+    result = page.evaluate(
+        """async (storm) => {
+          const charts = await import('/js/charts.js');
+          charts.renderWindChart(
+            document.querySelector('#wind-chart'),
+            storm.mean.points,
+            {unit: 'm/s', members: storm.members},
+          );
+          charts.renderPressureChart(
+            document.querySelector('#pressure-chart'),
+            storm.mean.points,
+            {members: storm.members},
+          );
+          const summarize = (selector) => {
+            const svg = document.querySelector(selector);
+            const members = [...svg.querySelectorAll('path.member-series')];
+            const mean = svg.querySelector('path.mean-series');
+            return {
+              memberPaths: members.map((path) => path.getAttribute('d')),
+              memberTitles: members.map((path) => path.querySelector('title').textContent),
+              memberYCoordinates: members.flatMap((path) => {
+                const coordinates = path.getAttribute('d').match(/-?\\d+(?:\\.\\d+)?/g).map(Number);
+                return coordinates.filter((_, index) => index % 2 === 1);
+              }),
+              meanAfterMembers: members.every(
+                (path) => Boolean(path.compareDocumentPosition(mean) & Node.DOCUMENT_POSITION_FOLLOWING)
+              ),
+            };
+          };
+          return {wind: summarize('#wind-chart'), pressure: summarize('#pressure-chart')};
+        }""",
+        storm,
+    )
+
+    for chart in (result["wind"], result["pressure"]):
+        assert len(chart["memberPaths"]) == 2
+        assert chart["meanAfterMembers"] is True
+        assert any("cf00" in title for title in chart["memberTitles"])
+        assert any("pf01" in title for title in chart["memberTitles"])
+        assert all("NaN" not in path for path in chart["memberPaths"])
+        assert chart["memberPaths"][0].count("M ") == 2
+        assert all(28 <= y <= 270 for y in chart["memberYCoordinates"])
     page.close()
 
 

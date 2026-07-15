@@ -69,19 +69,29 @@ function paddedExtent(values) {
   return [minimum - padding, maximum + padding];
 }
 
-function chartPath(points, valueForPoint, xScale, yScale) {
+function chartPath(points, valueForPoint, xScale, yScale, maxStepHours = null) {
   let segmentOpen = false;
+  let previousTau = null;
   const commands = [];
   for (const point of points) {
     const value = valueForPoint(point);
     if (!Number.isFinite(point?.tau_h) || !Number.isFinite(value)) {
       segmentOpen = false;
+      previousTau = null;
       continue;
+    }
+    if (
+      previousTau !== null &&
+      maxStepHours !== null &&
+      point.tau_h - previousTau > maxStepHours
+    ) {
+      segmentOpen = false;
     }
     commands.push(
       `${segmentOpen ? "L" : "M"} ${compactNumber(xScale(point.tau_h))} ${compactNumber(yScale(value))}`,
     );
     segmentOpen = true;
+    previousTau = point.tau_h;
   }
   return commands.join(" ");
 }
@@ -155,18 +165,25 @@ function renderAxes(group, xScale, yScale, xDomain, yDomain, unitLabel) {
   });
 }
 
-function renderChart(svg, points, { valueForPoint, unitLabel, pointLabel, emptyMessage }) {
+function renderChart(
+  svg,
+  points,
+  { valueForPoint, unitLabel, pointLabel, emptyMessage, members = [] },
+) {
   if (!svg || svg.namespaceURI !== SVG_NS) {
     throw new TypeError("圖表 renderer 需要 SVG 元素");
   }
   const safePoints = Array.isArray(points) ? points : [];
+  const safeMembers = Array.isArray(members)
+    ? members.filter((member) => Array.isArray(member?.points))
+    : [];
   svg.setAttribute("viewBox", `0 0 ${CHART.width} ${CHART.height}`);
   svg.querySelectorAll(":scope > [data-renderer='chart']").forEach((node) => node.remove());
 
   const group = svgElement("g", { "data-renderer": "chart" });
-  const xExtent = finiteExtent(safePoints.map((point) => point?.tau_h));
-  const values = safePoints.map(valueForPoint);
-  const yExtent = paddedExtent(values);
+  const allPoints = [safePoints, ...safeMembers.map((member) => member.points)].flat();
+  const xExtent = finiteExtent(allPoints.map((point) => point?.tau_h));
+  const yExtent = paddedExtent(allPoints.map(valueForPoint));
   if (xExtent === null || yExtent === null) {
     appendText(group, "empty-series", emptyMessage, {
       x: CHART.width / 2,
@@ -191,6 +208,14 @@ function renderChart(svg, points, { valueForPoint, unitLabel, pointLabel, emptyM
     CHART.margin.top,
   );
   renderAxes(group, xScale, yScale, xDomain, yExtent, unitLabel);
+
+  for (const member of safeMembers) {
+    const memberPathData = chartPath(member.points, valueForPoint, xScale, yScale, 6);
+    if (!memberPathData) continue;
+    const memberPath = svgElement("path", { class: "member-series", d: memberPathData });
+    appendTitle(memberPath, `集合成員 ${member.id}（${member.member_type}）`);
+    group.append(memberPath);
+  }
 
   const pathData = chartPath(safePoints, valueForPoint, xScale, yScale);
   if (pathData) {
@@ -220,7 +245,7 @@ function renderChart(svg, points, { valueForPoint, unitLabel, pointLabel, emptyM
   svg.append(group);
 }
 
-export function renderWindChart(svg, points, { unit = "kt" } = {}) {
+export function renderWindChart(svg, points, { unit = "kt", members = [] } = {}) {
   formatWind(0, unit);
   const valueForPoint = (point) => {
     if (!Number.isFinite(point?.wind_kt)) {
@@ -233,10 +258,11 @@ export function renderWindChart(svg, points, { unit = "kt" } = {}) {
     unitLabel: unit === "kt" ? "knots" : "m/s",
     pointLabel: (point) => `預報 ${point.tau_h} 小時｜最大風速 ${formatWind(point.wind_kt, unit)}`,
     emptyMessage: "目前沒有最大風速資料",
+    members,
   });
 }
 
-export function renderPressureChart(svg, points) {
+export function renderPressureChart(svg, points, { members = [] } = {}) {
   const valueForPoint = (point) =>
     Number.isFinite(point?.pressure_hpa) ? point.pressure_hpa : null;
   renderChart(svg, points, {
@@ -244,5 +270,6 @@ export function renderPressureChart(svg, points) {
     unitLabel: "hPa",
     pointLabel: (point) => `預報 ${point.tau_h} 小時｜中心氣壓 ${point.pressure_hpa.toFixed(1)} hPa`,
     emptyMessage: "目前沒有中心氣壓資料",
+    members,
   });
 }
