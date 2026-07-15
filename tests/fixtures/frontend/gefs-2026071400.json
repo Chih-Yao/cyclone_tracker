@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "source_id": "gefs",
+  "initialized_at": "2026-07-14T00:00:00Z",
+  "storms": [
+    {
+      "id": "90W",
+      "name": null,
+      "basin": "WP",
+      "invest": true,
+      "members": [
+        {
+          "id": "ac00",
+          "member_type": "control",
+          "points": [
+            {"tau_h": 0, "valid_at": "2026-07-14T00:00:00Z", "lat": 10.5, "lon": 146.5, "wind_kt": 25.0, "wind_source_value": 25.0, "wind_source_unit": "kt", "pressure_hpa": 1005.0}
+          ]
+        }
+      ],
+      "mean": {
+        "points": [
+          {"tau_h": 0, "valid_at": "2026-07-14T00:00:00Z", "lat": 10.5, "lon": 146.5, "wind_kt": 25.0, "pressure_hpa": 1005.0, "member_count": 1}
+        ]
+      }
+    },
+    {
+      "id": "09W",
+      "name": "範例颱風",
+      "basin": "WP",
+      "invest": false,
+      "members": [
+        {
+          "id": "ac00",
+          "member_type": "control",
+          "points": [
+            {"tau_h": 0, "valid_at": "2026-07-14T00:00:00Z", "lat": 17.0, "lon": 133.0, "wind_kt": 70.0, "wind_source_value": 70.0, "wind_source_unit": "kt", "pressure_hpa": 980.0}
+          ]
+        }
+      ],
+      "mean": {
+        "points": [
+          {"tau_h": 0, "valid_at": "2026-07-14T00:00:00Z", "lat": 17.0, "lon": 133.0, "wind_kt": 70.0, "pressure_hpa": 980.0, "member_count": 1}
+        ]
+      }
+    }
+  ]
+}

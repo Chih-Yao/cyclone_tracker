@@ -4,12 +4,19 @@ from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from threading import Thread
+from urllib.parse import urlparse
 
 import pytest
 from playwright.sync_api import Browser, Page, sync_playwright
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 FRONTEND_FIXTURES = PROJECT_ROOT / "tests" / "fixtures" / "frontend"
+CYCLE_FIXTURES = {
+    "/data/gefs/2026071300.json": "gefs-2026071300.json",
+    "/data/gefs/2026071400.json": "gefs-2026071400.json",
+    "/data/gefs/2026071500.json": "gefs-2026071500.json",
+    "/data/ifs-ens/2026071500.json": "ifs-ens-2026071500.json",
+}
 
 
 @pytest.fixture(scope="session")
@@ -40,25 +47,46 @@ def cycle_fixture() -> dict:
 
 
 def install_fixture_routes(page: Page, variant: str = "normal") -> None:
-    manifest = (FRONTEND_FIXTURES / "manifest.json").read_bytes()
-    cycle_name = "empty.json" if variant == "empty" else "gefs-2026071500.json"
-    cycle = (FRONTEND_FIXTURES / cycle_name).read_bytes()
-    page.route(
-        "**/data/manifest.json",
-        lambda route: route.fulfill(
+    def fulfill_data(route) -> None:
+        path = urlparse(route.request.url).path
+        if path == "/data/manifest.json":
+            if variant == "manifest-unavailable":
+                route.fulfill(status=503, body="暫停服務")
+                return
+            if variant == "manifest-malformed":
+                route.fulfill(
+                    status=200,
+                    body='{"schema_version": 1, "sources": "not-an-array"}',
+                    content_type="application/json",
+                )
+                return
+            fixture_name = "manifest.json"
+        else:
+            fixture_name = CYCLE_FIXTURES.get(path)
+            if fixture_name is None:
+                route.fallback()
+                return
+            if path == "/data/gefs/2026071500.json":
+                if variant == "empty":
+                    fixture_name = "empty.json"
+                elif variant == "cycle-unavailable":
+                    route.fulfill(status=503, body="暫停服務")
+                    return
+                elif variant == "cycle-malformed":
+                    route.fulfill(
+                        status=200,
+                        body='{"schema_version": 1, "storms": "not-an-array"}',
+                        content_type="application/json",
+                    )
+                    return
+
+        route.fulfill(
             status=200,
-            body=manifest,
+            body=(FRONTEND_FIXTURES / fixture_name).read_bytes(),
             content_type="application/json",
-        ),
-    )
-    page.route(
-        "**/data/gefs/2026071500.json",
-        lambda route: route.fulfill(
-            status=200,
-            body=cycle,
-            content_type="application/json",
-        ),
-    )
+        )
+
+    page.route("**/data/**", fulfill_data)
 
 
 def dashboard_page(

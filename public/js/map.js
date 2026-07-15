@@ -280,6 +280,7 @@ function meanPointLabel(point, unit) {
 function createTooltip() {
   const tooltip = svgElement("g", {
     class: "map-tooltip",
+    role: "tooltip",
     visibility: "hidden",
     "aria-hidden": "true",
   });
@@ -287,6 +288,29 @@ function createTooltip() {
   const text = svgElement("text", { x: 10, y: 23 });
   tooltip.append(text);
   return tooltip;
+}
+
+function createLegend() {
+  const legend = svgElement("g", {
+    class: "map-legend",
+    transform: "translate(18 18)",
+    role: "group",
+    "aria-label": "預報航跡圖例",
+  });
+  legend.append(svgElement("rect", { width: 246, height: 70, rx: 2 }));
+  legend.append(
+    svgElement("line", { class: "legend-member", x1: 14, y1: 24, x2: 55, y2: 24 }),
+  );
+  const memberLabel = svgElement("text", { x: 66, y: 29 });
+  memberLabel.textContent = "集合成員航跡";
+  legend.append(memberLabel);
+  legend.append(
+    svgElement("line", { class: "legend-mean", x1: 14, y1: 51, x2: 55, y2: 51 }),
+  );
+  const meanLabel = svgElement("text", { x: 66, y: 56 });
+  meanLabel.textContent = "集合平均路徑";
+  legend.append(meanLabel);
+  return legend;
 }
 
 function showTooltip(tooltip, label, x, y, width) {
@@ -360,6 +384,7 @@ export function renderMap(svg, landGeoJson, storm, { unit = "kt" } = {}) {
     plot.append(meanPath);
   }
 
+  plot.append(createLegend());
   const tooltip = createTooltip();
   for (const point of meanPoints) {
     const projected = projectPoint(point?.lon, point?.lat, width, height);

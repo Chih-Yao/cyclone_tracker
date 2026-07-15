@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "source_id": "ifs-ens",
+  "initialized_at": "2026-07-15T00:00:00Z",
+  "storms": [
+    {
+      "id": "09W",
+      "name": "範例颱風",
+      "basin": "WP",
+      "invest": false,
+      "members": [
+        {
+          "id": "cf00",
+          "member_type": "control",
+          "points": [
+            {"tau_h": 0, "valid_at": "2026-07-15T00:00:00Z", "lat": 18.2, "lon": 131.8, "wind_kt": 82.0, "wind_source_value": 82.0, "wind_source_unit": "kt", "pressure_hpa": 968.0}
+          ]
+        }
+      ],
+      "mean": {
+        "points": [
+          {"tau_h": 0, "valid_at": "2026-07-15T00:00:00Z", "lat": 18.2, "lon": 131.8, "wind_kt": 82.0, "pressure_hpa": 968.0, "member_count": 1}
+        ]
+      }
+    }
+  ]
+}

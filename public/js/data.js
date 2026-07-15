@@ -16,11 +16,11 @@ function sameOriginUrl(path) {
   return url;
 }
 
-async function fetchJson(path) {
+async function fetchJson(path, fetchOptions) {
   const url = sameOriginUrl(path);
   let response;
   try {
-    response = await fetch(url);
+    response = await fetch(url, fetchOptions);
   } catch {
     throw new Error(UNAVAILABLE_MESSAGE);
   }
@@ -70,16 +70,16 @@ function hasValidCycleShape(value) {
   );
 }
 
-export async function loadManifest(path = "/data/manifest.json") {
-  const manifest = await fetchJson(path);
+export async function loadManifest(path = "/data/manifest.json", fetchOptions) {
+  const manifest = await fetchJson(path, fetchOptions);
   if (!hasValidManifestShape(manifest)) {
     throw new Error(MALFORMED_MESSAGE);
   }
   return manifest;
 }
 
-export async function loadCycle(href) {
-  const cycle = await fetchJson(href);
+export async function loadCycle(href, fetchOptions) {
+  const cycle = await fetchJson(href, fetchOptions);
   if (!hasValidCycleShape(cycle)) {
     throw new Error(MALFORMED_MESSAGE);
   }

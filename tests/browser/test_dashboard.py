@@ -1,7 +1,7 @@
 from urllib.parse import urlparse
 
 import pytest
-from playwright.sync_api import Browser, ConsoleMessage
+from playwright.sync_api import Browser, ConsoleMessage, Page
 
 from cyclone_tracker.models import CycleData, Manifest
 
@@ -13,10 +13,20 @@ from .conftest import (
 )
 
 
+def wait_for_dashboard(page: Page, storm_id: str = "09W") -> None:
+    page.locator(f".instrument-shell[data-current-storm='{storm_id}']").wait_for(timeout=5_000)
+
+
 def test_frontend_fixtures_match_the_published_schema() -> None:
     Manifest.model_validate_json((FRONTEND_FIXTURES / "manifest.json").read_bytes())
-    CycleData.model_validate_json((FRONTEND_FIXTURES / "gefs-2026071500.json").read_bytes())
-    CycleData.model_validate_json((FRONTEND_FIXTURES / "empty.json").read_bytes())
+    for fixture_name in (
+        "gefs-2026071300.json",
+        "gefs-2026071400.json",
+        "gefs-2026071500.json",
+        "ifs-ens-2026071500.json",
+        "empty.json",
+    ):
+        CycleData.model_validate_json((FRONTEND_FIXTURES / fixture_name).read_bytes())
 
 
 def test_dashboard_shell_has_taiwan_chinese_controls(
@@ -105,9 +115,11 @@ def test_data_module_loads_same_origin_manifest_and_cycle(
         """async () => {
           const data = await import('/js/data.js');
           const manifest = await data.loadManifest();
-          const cycle = await data.loadCycle(manifest.sources[0].cycles[0].href);
-          return {
-            source: manifest.sources[0].id,
+          const source = manifest.sources.find((candidate) => candidate.id === 'gefs');
+          const summary = source.cycles.find((candidate) => candidate.id === '2026071500');
+              const cycle = await data.loadCycle(summary.href);
+              return {
+                source: source.id,
             cycle: cycle.initialized_at,
             storms: cycle.storms.map((storm) => storm.id),
           };
@@ -118,6 +130,43 @@ def test_data_module_loads_same_origin_manifest_and_cycle(
         "cycle": "2026-07-15T00:00:00Z",
         "storms": ["09W", "90W"],
     }
+    page.close()
+
+
+def test_data_helpers_forward_optional_fetch_options(
+    browser: Browser,
+    site_url: str,
+) -> None:
+    page = browser.new_page()
+    page.goto(site_url)
+    calls = page.evaluate(
+        """async () => {
+          const originalFetch = window.fetch;
+          const calls = [];
+          window.fetch = async (input, options) => {
+            calls.push({url: String(input), cache: options?.cache ?? null});
+            const payload = calls.length === 1
+              ? {schema_version: 1, sources: []}
+              : {schema_version: 1, storms: []};
+            return new Response(JSON.stringify(payload), {
+              status: 200,
+              headers: {'Content-Type': 'application/json'},
+            });
+          };
+          try {
+            const data = await import('/js/data.js');
+            await data.loadManifest(undefined, {cache: 'no-store'});
+            await data.loadCycle('/data/example.json', {cache: 'reload'});
+          } finally {
+            window.fetch = originalFetch;
+          }
+          return calls;
+        }"""
+    )
+    assert calls == [
+        {"url": f"{site_url}/data/manifest.json", "cache": "no-store"},
+        {"url": f"{site_url}/data/example.json", "cache": "reload"},
+    ]
     page.close()
 
 
@@ -279,12 +328,20 @@ def test_dashboard_uses_only_local_runtime_resources(
 ) -> None:
     page = browser.new_page()
     requested_urls: list[str] = []
+    console_errors: list[str] = []
     page.on("request", lambda request: requested_urls.append(request.url))
+    page.on(
+        "console",
+        lambda message: console_errors.append(message.text) if message.type == "error" else None,
+    )
+    install_fixture_routes(page)
     page.goto(site_url)
+    page.locator("#forecast-map path.track-mean").wait_for(timeout=5_000)
 
     expected_host = urlparse(site_url).netloc
     assert requested_urls
     assert all(urlparse(url).netloc == expected_host for url in requested_urls)
+    assert console_errors == []
     for selector, attribute in (
         ("script[src]", "src"),
         ("link[href]", "href"),
@@ -326,6 +383,23 @@ def test_desktop_layout_keeps_map_dominant_and_controls_accessible(
     page.close()
 
 
+def test_desktop_generated_utc_telemetry_is_not_clipped(
+    browser: Browser,
+    site_url: str,
+) -> None:
+    page = dashboard_page(browser, site_url)
+    wait_for_dashboard(page)
+    widths = page.locator("#generated-at").evaluate(
+        """node => {
+          const range = document.createRange();
+          range.selectNodeContents(node);
+          return {text: range.getBoundingClientRect().width, available: node.clientWidth};
+        }"""
+    )
+    assert widths["text"] <= widths["available"]
+    page.close()
+
+
 def test_mobile_layout_is_one_column_without_horizontal_scroll(
     browser: Browser,
     site_url: str,
@@ -341,6 +415,22 @@ def test_mobile_layout_is_one_column_without_horizontal_scroll(
     assert map_box is not None and wind_box is not None and pressure_box is not None
     assert map_box["y"] < wind_box["y"] < pressure_box["y"]
     assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+    page.close()
+
+
+def test_mobile_map_legend_remains_readable(
+    browser: Browser,
+    site_url: str,
+) -> None:
+    page = dashboard_page(
+        browser,
+        site_url,
+        viewport={"width": 390, "height": 844},
+    )
+    wait_for_dashboard(page)
+    legend_box = page.locator("#forecast-map .map-legend").bounding_box()
+    assert legend_box is not None
+    assert legend_box["width"] >= 150
     page.close()
 
 
@@ -447,8 +537,8 @@ def test_map_and_charts_have_accessible_responsive_svg_shells(
         assert svg.count() == 1
         assert svg.get_attribute("role") == "img"
         assert svg.get_attribute("viewBox") is not None
-        assert svg.locator("title").count() == 1
-        assert svg.locator("desc").count() == 1
+        assert svg.locator(":scope > title").count() == 1
+        assert svg.locator(":scope > desc").count() == 1
         assert page.get_by_role("img", name=name).count() == 1
 
     assert page.locator(".plot-placeholder").count() == 0
@@ -694,6 +784,7 @@ def test_charts_convert_wind_at_render_and_leave_null_gaps(
     site_url: str,
 ) -> None:
     page = dashboard_page(browser, site_url)
+    wait_for_dashboard(page)
     result = page.evaluate(
         """async () => {
           const charts = await import('/js/charts.js');
@@ -728,6 +819,212 @@ def test_charts_convert_wind_at_render_and_leave_null_gaps(
     assert result["windPoints"] == 3
     assert result["pressurePoints"] == 3
     assert page.locator("#wind-chart").get_by_text("m/s", exact=True).is_visible()
+    page.close()
+
+
+def test_dashboard_controls_initialize_first_available_source_and_newest_cycle(
+    browser: Browser,
+    site_url: str,
+) -> None:
+    page = dashboard_page(browser, site_url)
+    wait_for_dashboard(page)
+
+    shell = page.locator(".instrument-shell")
+    assert shell.get_attribute("data-current-source") == "gefs"
+    assert shell.get_attribute("data-current-cycle") == "2026071500"
+    assert page.get_by_label("資料來源").input_value() == "gefs"
+    assert page.get_by_label("模式起報時間").input_value() == "2026071500"
+    assert page.get_by_label("熱帶氣旋").input_value() == "09W"
+    assert page.locator("#source-select option[value='aigfs']").is_disabled()
+    assert "09W" in page.locator("#active-storm").text_content()
+    assert "資料正常" in page.locator("#source-freshness").text_content()
+    assert page.locator("#generated-at").text_content() == "2026-07-15 01:00 UTC"
+    attribution = page.locator("#source-attribution a")
+    assert attribution.text_content() == "NCEP GEFS"
+    assert attribution.get_attribute("href") == "https://nomads.ncep.noaa.gov/"
+    assert page.locator("#forecast-map .map-legend").is_visible()
+    assert page.locator("#forecast-map path.track-mean").count() == 1
+    page.close()
+
+
+def test_source_storm_and_unit_controls_update_the_view(
+    browser: Browser,
+    site_url: str,
+) -> None:
+    page = dashboard_page(browser, site_url)
+    wait_for_dashboard(page)
+
+    metric_button = page.get_by_role("button", name="m/s")
+    metric_button.click()
+    assert metric_button.get_attribute("aria-pressed") == "true"
+    assert page.locator("#wind-chart").get_by_text("m/s", exact=True).is_visible()
+    assert page.evaluate("localStorage.getItem('cyclone-wind-unit')") == "m/s"
+    page.locator("#forecast-map circle.mean-point").nth(1).focus()
+    assert "50.2 m/s" in page.locator("#forecast-map .map-tooltip").text_content()
+
+    page.get_by_label("熱帶氣旋").select_option("90W")
+    assert page.locator(".instrument-shell").get_attribute("data-current-storm") == "90W"
+    assert page.locator("#forecast-map path.track-member").count() == 1
+
+    page.get_by_label("資料來源").select_option("ifs-ens")
+    page.locator(".instrument-shell[data-current-source='ifs-ens']").wait_for(timeout=5_000)
+    assert page.get_by_label("模式起報時間").input_value() == "2026071500"
+    assert page.get_by_label("熱帶氣旋").input_value() == "09W"
+    assert "資料可能過時" in page.locator("#source-freshness").text_content()
+    status = page.get_by_role("status")
+    assert status.get_attribute("data-state") == "stale"
+    assert "最後成功資料" in status.text_content()
+    page.close()
+
+
+def test_cycle_controls_preserve_storm_then_fall_back_when_missing(
+    browser: Browser,
+    site_url: str,
+) -> None:
+    page = dashboard_page(browser, site_url)
+    wait_for_dashboard(page)
+    storm_select = page.get_by_label("熱帶氣旋")
+    cycle_select = page.get_by_label("模式起報時間")
+
+    storm_select.select_option("90W")
+    cycle_select.select_option("2026071400")
+    page.locator(".instrument-shell[data-current-cycle='2026071400']").wait_for(timeout=5_000)
+    assert storm_select.input_value() == "90W"
+
+    cycle_select.select_option("2026071300")
+    page.locator(".instrument-shell[data-current-cycle='2026071300']").wait_for(timeout=5_000)
+    assert storm_select.input_value() == "09W"
+    assert page.locator(".instrument-shell").get_attribute("data-current-storm") == "09W"
+    page.close()
+
+
+def test_unit_controls_restore_local_storage_and_keep_visible_keyboard_focus(
+    browser: Browser,
+    site_url: str,
+) -> None:
+    page = browser.new_page(viewport={"width": 1440, "height": 900})
+    page.add_init_script("localStorage.setItem('cyclone-wind-unit', 'm/s')")
+    install_fixture_routes(page)
+    page.goto(site_url)
+    wait_for_dashboard(page)
+
+    assert page.get_by_role("button", name="m/s").get_attribute("aria-pressed") == "true"
+    assert page.locator("#wind-chart").get_by_text("m/s", exact=True).is_visible()
+    for name in ("knots", "m/s"):
+        button = page.get_by_role("button", name=name)
+        button.focus()
+        focus_style = button.evaluate(
+            """(node) => ({
+              style: getComputedStyle(node).outlineStyle,
+              width: getComputedStyle(node).outlineWidth,
+            })"""
+        )
+        assert focus_style["style"] != "none"
+        assert focus_style["width"] != "0px"
+    page.close()
+
+
+def test_reload_uses_no_store_and_retains_last_view_on_cycle_error(
+    browser: Browser,
+    site_url: str,
+) -> None:
+    page = browser.new_page(viewport={"width": 1440, "height": 900})
+    page.add_init_script(
+        """
+        window.__task8FetchCalls = [];
+        const task8OriginalFetch = window.fetch.bind(window);
+        window.fetch = (input, options) => {
+          window.__task8FetchCalls.push({url: String(input), cache: options?.cache ?? null});
+          return task8OriginalFetch(input, options);
+        };
+        """
+    )
+    install_fixture_routes(page)
+    page.goto(site_url)
+    wait_for_dashboard(page)
+    path_before = page.locator("#forecast-map path.track-mean").get_attribute("d")
+    page.evaluate("window.__task8FetchCalls = []")
+    page.route(
+        "**/data/gefs/2026071500.json",
+        lambda route: route.fulfill(status=503, body="暫停服務"),
+    )
+
+    page.get_by_role("button", name="重新讀取資料").click()
+    status = page.locator("#load-status[data-state='error']")
+    status.wait_for(timeout=5_000)
+    assert "保留上次可用的預報" in status.text_content()
+    assert page.locator(".instrument-shell").get_attribute("data-current-storm") == "09W"
+    assert page.locator("#forecast-map path.track-mean").get_attribute("d") == path_before
+    calls = page.evaluate("window.__task8FetchCalls")
+    assert calls == [
+        {"url": f"{site_url}/data/manifest.json", "cache": "no-store"},
+        {"url": f"{site_url}/data/gefs/2026071500.json", "cache": "no-store"},
+    ]
+    page.close()
+
+
+def test_empty_cycle_explains_available_actions_without_a_blank_plot(
+    browser: Browser,
+    site_url: str,
+) -> None:
+    page = dashboard_page(browser, site_url, cycle_fixture="empty")
+    status = page.get_by_role("status")
+    status.wait_for(timeout=5_000)
+    assert status.get_attribute("data-state") == "empty"
+    assert "這個起報時間沒有西北太平洋氣旋" in status.text_content()
+    assert "可改選其他起報時間或重新讀取資料" in status.text_content()
+    assert page.locator("#forecast-map path.land").count() > 0
+    assert page.locator("#forecast-map path.track-mean").count() == 0
+    assert page.locator("#wind-chart .empty-series").is_visible()
+    assert page.locator("#pressure-chart .empty-series").is_visible()
+    page.close()
+
+
+@pytest.mark.parametrize(
+    ("variant", "expected_message"),
+    [
+        ("manifest-unavailable", "目前無法取得預報資料"),
+        ("manifest-malformed", "預報資料格式不正確"),
+        ("cycle-unavailable", "目前無法取得預報資料"),
+        ("cycle-malformed", "預報資料格式不正確"),
+    ],
+)
+def test_runtime_data_errors_are_actionable_and_distinguish_failure_kind(
+    browser: Browser,
+    site_url: str,
+    variant: str,
+    expected_message: str,
+) -> None:
+    page = dashboard_page(browser, site_url, cycle_fixture=variant)
+    status = page.locator("#load-status[data-state='error']")
+    status.wait_for(timeout=5_000)
+    assert expected_message in status.text_content()
+    assert "重新讀取資料" in status.text_content()
+    assert page.locator("#forecast-map path.track-mean").count() == 0
+    page.close()
+
+
+def test_unit_controls_respect_reduced_motion_and_forced_colors(
+    browser: Browser,
+    site_url: str,
+) -> None:
+    page = browser.new_page()
+    page.emulate_media(reduced_motion="reduce", forced_colors="active")
+    page.goto(site_url)
+    button = page.get_by_role("button", name="m/s")
+    button.focus()
+    styles = button.evaluate(
+        """(node) => ({
+          outline: getComputedStyle(node).outlineStyle,
+          duration: getComputedStyle(node).transitionDuration,
+        })"""
+    )
+    assert styles["outline"] != "none"
+    assert styles["duration"] in {"0s", "1e-05s"}
+    css = page.locator("link[rel='stylesheet']").evaluate(
+        "async (link) => await (await fetch(link.href)).text()"
+    )
+    assert "@media (forced-colors: active)" in css
     page.close()
 
 
