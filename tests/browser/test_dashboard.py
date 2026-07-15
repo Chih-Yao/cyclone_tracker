@@ -5,7 +5,12 @@ from playwright.sync_api import Browser, ConsoleMessage
 
 from cyclone_tracker.models import CycleData, Manifest
 
-from .conftest import FRONTEND_FIXTURES, dashboard_page, install_fixture_routes
+from . import conftest as browser_conftest
+from .conftest import (
+    FRONTEND_FIXTURES,
+    dashboard_page,
+    install_fixture_routes,
+)
 
 
 def test_frontend_fixtures_match_the_published_schema() -> None:
@@ -66,6 +71,26 @@ def test_units_module_uses_exact_nautical_conversion(
     assert result["converted"] == pytest.approx(51.4444444444)
     assert result["metric"] == "51.4 m/s"
     assert result["nautical"] == "100.0 kt"
+    page.close()
+
+
+def test_units_module_rejects_unsupported_wind_units(
+    browser: Browser,
+    site_url: str,
+) -> None:
+    page = browser.new_page()
+    page.goto(site_url)
+    message = page.evaluate(
+        """async () => {
+          const units = await import('/js/units.js');
+          try {
+            units.formatWind(100, 'mph');
+          } catch (error) {
+            return error.message;
+          }
+        }"""
+    )
+    assert message == "最大風速單位只支援 kt 或 m/s"
     page.close()
 
 
@@ -152,6 +177,99 @@ def test_data_module_distinguishes_unavailable_and_malformed_data(
         }"""
     )
     assert messages == ["目前無法取得預報資料", "預報資料格式不正確"]
+    page.close()
+
+
+@pytest.mark.parametrize(
+    ("loader", "payload"),
+    [
+        (
+            "loadManifest",
+            {"schema_version": 1, "sources": [{"cycles": ["not-a-record"]}]},
+        ),
+        (
+            "loadManifest",
+            {"schema_version": 1, "sources": [{"cycles": [{"storms": "not-an-array"}]}]},
+        ),
+        (
+            "loadCycle",
+            {
+                "schema_version": 1,
+                "storms": [{"members": ["not-a-record"], "mean": {"points": []}}],
+            },
+        ),
+        (
+            "loadCycle",
+            {
+                "schema_version": 1,
+                "storms": [
+                    {
+                        "members": [{"points": "not-an-array"}],
+                        "mean": {"points": []},
+                    }
+                ],
+            },
+        ),
+    ],
+)
+def test_data_module_rejects_malformed_nested_arrays(
+    browser: Browser,
+    site_url: str,
+    loader: str,
+    payload: dict,
+) -> None:
+    page = browser.new_page()
+    page.route(
+        "**/data/nested-malformed.json",
+        lambda route: route.fulfill(status=200, json=payload),
+    )
+    page.goto(site_url)
+    message = page.evaluate(
+        """async ({ loader }) => {
+          const data = await import('/js/data.js');
+          try {
+            await data[loader]('/data/nested-malformed.json');
+          } catch (error) {
+            return error.message;
+          }
+        }""",
+        {"loader": loader},
+    )
+    assert message == "預報資料格式不正確"
+    page.close()
+
+
+@pytest.mark.parametrize("loader", ["loadManifest", "loadCycle"])
+def test_data_module_rejects_all_disallowed_url_forms(
+    browser: Browser,
+    site_url: str,
+    loader: str,
+) -> None:
+    page = browser.new_page()
+    page.goto(site_url)
+    messages = page.evaluate(
+        """async ({ loader }) => {
+          const data = await import('/js/data.js');
+          const current = new URL(window.location.href);
+          const otherPort = current.port === '65535' ? 65534 : Number(current.port) + 1;
+          const paths = [
+            '//example.com/cycle.json',
+            `${current.protocol}//user:secret@${current.host}/data/cycle.json`,
+            `${current.protocol}//${current.hostname}:${otherPort}/data/cycle.json`,
+          ];
+          const messages = [];
+          for (const path of paths) {
+            try {
+              await data[loader](path);
+            } catch (error) {
+              messages.push(error.message);
+            }
+          }
+          return messages;
+        }""",
+        {"loader": loader},
+    )
+    assert messages == ["只允許讀取本站的預報資料"] * 3
     page.close()
 
 
@@ -264,3 +382,55 @@ def test_visual_tokens_and_reduced_motion_rule_are_present(
     assert "linear-gradient" not in css
     assert "box-shadow" not in css
     page.close()
+
+
+def test_forecast_guidance_uses_the_visually_hidden_utility(
+    browser: Browser,
+    site_url: str,
+) -> None:
+    page = browser.new_page()
+    page.goto(site_url)
+    guidance = page.locator("#forecast-guidance.visually-hidden")
+    assert guidance.count() == 1
+    assert (
+        page.get_by_role("region", name="預報航跡").get_attribute("aria-describedby")
+        == "forecast-guidance"
+    )
+    styles = guidance.evaluate(
+        """(node) => ({
+          position: getComputedStyle(node).position,
+          width: getComputedStyle(node).width,
+          height: getComputedStyle(node).height,
+          overflow: getComputedStyle(node).overflow,
+        })"""
+    )
+    assert styles == {
+        "position": "absolute",
+        "width": "1px",
+        "height": "1px",
+        "overflow": "hidden",
+    }
+    page.close()
+
+
+def test_site_server_fixture_explicitly_closes_its_socket(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tracked_servers: list[browser_conftest.ThreadingHTTPServer] = []
+    server_class = browser_conftest.ThreadingHTTPServer
+
+    class TrackedHTTPServer(server_class):
+        def __init__(self, *args, **kwargs) -> None:
+            super().__init__(*args, **kwargs)
+            tracked_servers.append(self)
+
+    monkeypatch.setattr(browser_conftest, "ThreadingHTTPServer", TrackedHTTPServer)
+    fixture_generator = browser_conftest.site_url.__wrapped__()
+    next(fixture_generator)
+    fixture_generator.close()
+
+    server = tracked_servers[0]
+    try:
+        assert server.fileno() == -1
+    finally:
+        server.server_close()

@@ -10,7 +10,7 @@ function sameOriginUrl(path) {
     throw new Error(CROSS_ORIGIN_MESSAGE);
   }
 
-  if (url.origin !== window.location.origin) {
+  if (url.username || url.password || url.origin !== window.location.origin) {
     throw new Error(CROSS_ORIGIN_MESSAGE);
   }
   return url;
@@ -45,7 +45,12 @@ function hasValidManifestShape(value) {
     isRecord(value) &&
     value.schema_version === 1 &&
     Array.isArray(value.sources) &&
-    value.sources.every((source) => isRecord(source) && Array.isArray(source.cycles))
+    value.sources.every(
+      (source) =>
+        isRecord(source) &&
+        Array.isArray(source.cycles) &&
+        source.cycles.every((cycle) => isRecord(cycle) && Array.isArray(cycle.storms)),
+    )
   );
 }
 
@@ -58,6 +63,7 @@ function hasValidCycleShape(value) {
       (storm) =>
         isRecord(storm) &&
         Array.isArray(storm.members) &&
+        storm.members.every((member) => isRecord(member) && Array.isArray(member.points)) &&
         isRecord(storm.mean) &&
         Array.isArray(storm.mean.points),
     )

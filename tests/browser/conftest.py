@@ -23,6 +23,7 @@ def site_url() -> Iterator[str]:
     finally:
         server.shutdown()
         thread.join(timeout=5)
+        server.server_close()
 
 
 @pytest.fixture(scope="session")

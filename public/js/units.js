@@ -5,6 +5,9 @@ export function knotsToMetresPerSecond(knots) {
 }
 
 export function formatWind(knots, unit = "kt") {
+  if (unit !== "kt" && unit !== "m/s") {
+    throw new Error("最大風速單位只支援 kt 或 m/s");
+  }
   const value = unit === "m/s" ? knotsToMetresPerSecond(knots) : knots;
   return `${value.toFixed(1)} ${unit}`;
 }

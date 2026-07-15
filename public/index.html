@@ -75,7 +75,14 @@
 
       <main id="main-content" tabindex="-1">
         <div class="forecast-grid">
-          <section class="panel map-panel" aria-labelledby="map-heading">
+          <section
+            class="panel map-panel"
+            aria-labelledby="map-heading"
+            aria-describedby="forecast-guidance"
+          >
+            <p id="forecast-guidance" class="visually-hidden">
+              淡色線表示個別集合成員，深色線表示平均預報路徑。
+            </p>
             <div class="section-heading">
               <div>
                 <p class="section-index">FORECAST RIBBON · ENSEMBLE</p>
