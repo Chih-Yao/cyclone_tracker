@@ -985,6 +985,7 @@ git commit -m "feat: add static forecast dashboard shell"
 - Create: `public/js/charts.js`
 - Create: `public/assets/ne_110m_land.geojson`
 - Create: `public/assets/NATURAL_EARTH_LICENSE.txt`
+- Modify: `public/index.html`
 - Modify: `public/styles.css`
 - Modify: `tests/browser/test_dashboard.py`
 
@@ -994,7 +995,13 @@ git commit -m "feat: add static forecast dashboard shell"
 
 - [ ] **Step 1: Download and record the local Natural Earth asset**
 
-Download `ne_110m_land.geojson` from the official `nvkelso/natural-earth-vector` repository once during development, commit it under `public/assets/`, and create `NATURAL_EARTH_LICENSE.txt` stating Natural Earth data is public domain with links to `https://www.naturalearthdata.com/about/terms-of-use/` and the source file. Production must load only `/assets/ne_110m_land.geojson`.
+Download `geojson/ne_110m_land.geojson` from the official
+`https://github.com/nvkelso/natural-earth-vector` repository once during development, commit it
+under `public/assets/`, and create `NATURAL_EARTH_LICENSE.txt` stating Natural Earth data is public
+domain with links to `https://www.naturalearthdata.com/about/terms-of-use/` and the exact source
+file. Replace the three plot placeholders in `public/index.html` with accessible responsive SVG
+elements `#forecast-map`, `#wind-chart` and `#pressure-chart`. Production must load only
+`/assets/ne_110m_land.geojson`.
 
 - [ ] **Step 2: Write failing rendering tests**
 
