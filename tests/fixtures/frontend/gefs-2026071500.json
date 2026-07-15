@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "source_id": "gefs",
+  "initialized_at": "2026-07-15T00:00:00Z",
+  "storms": [
+    {
+      "id": "09W",
+      "name": "範例颱風",
+      "basin": "WP",
+      "invest": false,
+      "members": [
+        {
+          "id": "ac00",
+          "member_type": "control",
+          "points": [
+            {"tau_h": 0, "valid_at": "2026-07-15T00:00:00Z", "lat": 18.0, "lon": 132.0, "wind_kt": 80.0, "wind_source_value": 80.0, "wind_source_unit": "kt", "pressure_hpa": 970.0},
+            {"tau_h": 6, "valid_at": "2026-07-15T06:00:00Z", "lat": 18.8, "lon": 131.2, "wind_kt": 100.0, "wind_source_value": 100.0, "wind_source_unit": "kt", "pressure_hpa": 950.0},
+            {"tau_h": 12, "valid_at": "2026-07-15T12:00:00Z", "lat": 19.7, "lon": 130.2, "wind_kt": 105.0, "wind_source_value": 105.0, "wind_source_unit": "kt", "pressure_hpa": 945.0}
+          ]
+        },
+        {
+          "id": "ap01",
+          "member_type": "perturbed",
+          "points": [
+            {"tau_h": 0, "valid_at": "2026-07-15T00:00:00Z", "lat": 18.1, "lon": 132.1, "wind_kt": 75.0, "wind_source_value": 75.0, "wind_source_unit": "kt", "pressure_hpa": 975.0},
+            {"tau_h": 6, "valid_at": "2026-07-15T06:00:00Z", "lat": 19.0, "lon": 131.4, "wind_kt": 95.0, "wind_source_value": 95.0, "wind_source_unit": "kt", "pressure_hpa": 955.0},
+            {"tau_h": 12, "valid_at": "2026-07-15T12:00:00Z", "lat": 20.0, "lon": 130.5, "wind_kt": 100.0, "wind_source_value": 100.0, "wind_source_unit": "kt", "pressure_hpa": 950.0}
+          ]
+        }
+      ],
+      "mean": {
+        "points": [
+          {"tau_h": 0, "valid_at": "2026-07-15T00:00:00Z", "lat": 18.05, "lon": 132.05, "wind_kt": 77.5, "pressure_hpa": 972.5, "member_count": 2},
+          {"tau_h": 6, "valid_at": "2026-07-15T06:00:00Z", "lat": 18.9, "lon": 131.3, "wind_kt": 97.5, "pressure_hpa": 952.5, "member_count": 2},
+          {"tau_h": 12, "valid_at": "2026-07-15T12:00:00Z", "lat": 19.85, "lon": 130.35, "wind_kt": 102.5, "pressure_hpa": 947.5, "member_count": 2}
+        ]
+      }
+    },
+    {
+      "id": "90W",
+      "name": null,
+      "basin": "WP",
+      "invest": true,
+      "members": [
+        {
+          "id": "ac00",
+          "member_type": "control",
+          "points": [
+            {"tau_h": 0, "valid_at": "2026-07-15T00:00:00Z", "lat": 11.0, "lon": 146.0, "wind_kt": 25.0, "wind_source_value": 25.0, "wind_source_unit": "kt", "pressure_hpa": 1004.0},
+            {"tau_h": 6, "valid_at": "2026-07-15T06:00:00Z", "lat": 11.4, "lon": 145.4, "wind_kt": 30.0, "wind_source_value": 30.0, "wind_source_unit": "kt", "pressure_hpa": 1000.0},
+            {"tau_h": 12, "valid_at": "2026-07-15T12:00:00Z", "lat": 11.9, "lon": 144.8, "wind_kt": 35.0, "wind_source_value": 35.0, "wind_source_unit": "kt", "pressure_hpa": 996.0}
+          ]
+        }
+      ],
+      "mean": {
+        "points": [
+          {"tau_h": 0, "valid_at": "2026-07-15T00:00:00Z", "lat": 11.0, "lon": 146.0, "wind_kt": 25.0, "pressure_hpa": 1004.0, "member_count": 1},
+          {"tau_h": 6, "valid_at": "2026-07-15T06:00:00Z", "lat": 11.4, "lon": 145.4, "wind_kt": 30.0, "pressure_hpa": 1000.0, "member_count": 1},
+          {"tau_h": 12, "valid_at": "2026-07-15T12:00:00Z", "lat": 11.9, "lon": 144.8, "wind_kt": 35.0, "pressure_hpa": 996.0, "member_count": 1}
+        ]
+      }
+    }
+  ]
+}

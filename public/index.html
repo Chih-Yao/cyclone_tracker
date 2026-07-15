@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="西北太平洋熱帶氣旋集合預報靜態檢視器">
+    <title>西北太平洋氣旋集合預報</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <a class="skip-link" href="#main-content">跳到主要內容</a>
+
+    <div class="instrument-shell">
+      <header>
+        <div class="status-rail">
+          <div class="product-lockup">
+            <p class="eyebrow">CYCLONE TRACKER · WP</p>
+            <h1>西北太平洋氣旋集合預報</h1>
+          </div>
+          <dl class="telemetry" aria-label="目前預報狀態">
+            <div>
+              <dt>熱帶氣旋</dt>
+              <dd id="active-storm">尚未選取</dd>
+            </div>
+            <div>
+              <dt>資料狀態</dt>
+              <dd id="source-freshness">等待資料</dd>
+            </div>
+            <div>
+              <dt>產生時間 UTC</dt>
+              <dd id="generated-at">—</dd>
+            </div>
+          </dl>
+          <p id="load-status" class="load-status" aria-live="polite">準備讀取預報資料</p>
+        </div>
+
+        <section class="control-rail" aria-label="預報控制">
+          <div class="control-field">
+            <label for="source-select">資料來源</label>
+            <select id="source-select" name="source">
+              <option selected disabled>正在載入來源…</option>
+            </select>
+          </div>
+
+          <div class="control-field">
+            <label for="cycle-select">模式起報時間</label>
+            <select id="cycle-select" name="cycle">
+              <option selected disabled>正在載入起報時間…</option>
+            </select>
+          </div>
+
+          <div class="control-field">
+            <label for="storm-select">颱風／熱帶性低氣壓</label>
+            <select id="storm-select" name="storm" aria-label="熱帶氣旋">
+              <option selected disabled>正在載入熱帶氣旋…</option>
+            </select>
+          </div>
+
+          <fieldset class="unit-field">
+            <legend>最大風速單位</legend>
+            <div class="unit-options">
+              <button type="button" data-wind-unit="kt" aria-pressed="true">knots</button>
+              <button type="button" data-wind-unit="m/s" aria-pressed="false">m/s</button>
+            </div>
+          </fieldset>
+
+          <button class="reload-button" type="button">重新讀取資料</button>
+
+          <p id="source-attribution" class="attribution">
+            <span>資料來源署名</span>
+            將隨選取模式更新
+          </p>
+        </section>
+      </header>
+
+      <main id="main-content" tabindex="-1">
+        <div class="forecast-grid">
+          <section class="panel map-panel" aria-labelledby="map-heading">
+            <div class="section-heading">
+              <div>
+                <p class="section-index">FORECAST RIBBON · ENSEMBLE</p>
+                <h2 id="map-heading">預報航跡</h2>
+              </div>
+              <p class="section-note">集合成員與平均路徑</p>
+            </div>
+            <div class="plot-frame map-frame">
+              <p class="plot-placeholder">選取預報後顯示集合航跡帶</p>
+            </div>
+          </section>
+
+          <div class="chart-stack">
+            <section class="panel wind-panel" aria-labelledby="wind-heading">
+              <div class="section-heading">
+                <div>
+                  <p class="section-index">INTENSITY · WIND</p>
+                  <h2 id="wind-heading">最大風速</h2>
+                </div>
+                <p class="section-note">平均與成員範圍</p>
+              </div>
+              <div class="plot-frame chart-frame">
+                <p class="plot-placeholder">等待風速資料</p>
+              </div>
+            </section>
+
+            <section class="panel pressure-panel" aria-labelledby="pressure-heading">
+              <div class="section-heading">
+                <div>
+                  <p class="section-index">INTENSITY · PRESSURE</p>
+                  <h2 id="pressure-heading">中心氣壓</h2>
+                </div>
+                <p class="section-note">單位 hPa</p>
+              </div>
+              <div class="plot-frame chart-frame pressure-frame">
+                <p class="plot-placeholder">等待氣壓資料</p>
+              </div>
+            </section>
+          </div>
+        </div>
+      </main>
+
+      <footer class="disclaimer-rail">
+        <p><strong>預報具有不確定性。</strong>本頁僅供氣象資訊判讀，不應取代中央氣象署發布的警報與防災指引。</p>
+      </footer>
+    </div>
+  </body>
+</html>

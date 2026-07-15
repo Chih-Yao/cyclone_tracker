@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-07-15T01:00:00Z",
+  "sources": [
+    {
+      "id": "gefs",
+      "name_zh_tw": "NCEP GEFS",
+      "attribution_url": "https://nomads.ncep.noaa.gov/",
+      "status": "ok",
+      "last_success_cycle": "2026071500",
+      "stale_after_hours": 12,
+      "error_kind": null,
+      "cycles": [
+        {
+          "id": "2026071500",
+          "initialized_at": "2026-07-15T00:00:00Z",
+          "href": "/data/gefs/2026071500.json",
+          "storms": ["09W", "90W"],
+          "empty": false
+        }
+      ]
+    }
+  ]
+}

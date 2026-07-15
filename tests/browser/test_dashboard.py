@@ -1,0 +1,266 @@
+from urllib.parse import urlparse
+
+import pytest
+from playwright.sync_api import Browser, ConsoleMessage
+
+from cyclone_tracker.models import CycleData, Manifest
+
+from .conftest import FRONTEND_FIXTURES, dashboard_page, install_fixture_routes
+
+
+def test_frontend_fixtures_match_the_published_schema() -> None:
+    Manifest.model_validate_json((FRONTEND_FIXTURES / "manifest.json").read_bytes())
+    CycleData.model_validate_json((FRONTEND_FIXTURES / "gefs-2026071500.json").read_bytes())
+    CycleData.model_validate_json((FRONTEND_FIXTURES / "empty.json").read_bytes())
+
+
+def test_dashboard_shell_has_taiwan_chinese_controls(
+    browser: Browser,
+    site_url: str,
+) -> None:
+    page = browser.new_page(viewport={"width": 1440, "height": 900})
+    console_errors: list[str] = []
+
+    def record_console_error(message: ConsoleMessage) -> None:
+        if message.type == "error":
+            console_errors.append(message.text)
+
+    page.on("console", record_console_error)
+    page.goto(site_url)
+
+    assert page.locator("html").get_attribute("lang") == "zh-Hant-TW"
+    assert page.locator("h1").count() == 1
+    assert page.get_by_role("heading", name="西北太平洋氣旋集合預報").is_visible()
+    assert page.get_by_role("link", name="跳到主要內容").get_attribute("href") == "#main-content"
+    assert page.get_by_label("資料來源").is_visible()
+    assert page.get_by_label("模式起報時間").is_visible()
+    assert page.get_by_label("熱帶氣旋").is_visible()
+    assert page.get_by_role("group", name="最大風速單位").is_visible()
+    assert page.get_by_role("button", name="重新讀取資料").is_visible()
+    assert page.locator("[aria-live='polite']").count() == 1
+    assert page.get_by_role("region", name="預報航跡").is_visible()
+    assert page.get_by_role("region", name="最大風速").is_visible()
+    assert page.get_by_role("region", name="中心氣壓").is_visible()
+    assert page.get_by_text("資料來源署名", exact=False).is_visible()
+    assert page.get_by_text("預報具有不確定性", exact=False).is_visible()
+    assert console_errors == []
+    page.close()
+
+
+def test_units_module_uses_exact_nautical_conversion(
+    browser: Browser,
+    site_url: str,
+) -> None:
+    page = browser.new_page()
+    page.goto(site_url)
+    result = page.evaluate(
+        """async () => {
+          const units = await import('/js/units.js');
+          return {
+            converted: units.knotsToMetresPerSecond(100),
+            metric: units.formatWind(100, 'm/s'),
+            nautical: units.formatWind(100),
+          };
+        }"""
+    )
+    assert result["converted"] == pytest.approx(51.4444444444)
+    assert result["metric"] == "51.4 m/s"
+    assert result["nautical"] == "100.0 kt"
+    page.close()
+
+
+def test_data_module_loads_same_origin_manifest_and_cycle(
+    browser: Browser,
+    site_url: str,
+) -> None:
+    page = browser.new_page()
+    install_fixture_routes(page)
+    page.goto(site_url)
+    result = page.evaluate(
+        """async () => {
+          const data = await import('/js/data.js');
+          const manifest = await data.loadManifest();
+          const cycle = await data.loadCycle(manifest.sources[0].cycles[0].href);
+          return {
+            source: manifest.sources[0].id,
+            cycle: cycle.initialized_at,
+            storms: cycle.storms.map((storm) => storm.id),
+          };
+        }"""
+    )
+    assert result == {
+        "source": "gefs",
+        "cycle": "2026-07-15T00:00:00Z",
+        "storms": ["09W", "90W"],
+    }
+    page.close()
+
+
+@pytest.mark.parametrize("loader", ["loadManifest", "loadCycle"])
+def test_data_module_rejects_cross_origin_paths(
+    browser: Browser,
+    site_url: str,
+    loader: str,
+) -> None:
+    page = browser.new_page()
+    page.goto(site_url)
+    message = page.evaluate(
+        """async ({ loader }) => {
+          const module = await import('/js/data.js');
+          try {
+            await module[loader]('https://example.com/cycle.json');
+          } catch (error) {
+            return error.message;
+          }
+        }""",
+        {"loader": loader},
+    )
+    assert message == "只允許讀取本站的預報資料"
+    page.close()
+
+
+def test_data_module_distinguishes_unavailable_and_malformed_data(
+    browser: Browser,
+    site_url: str,
+) -> None:
+    page = browser.new_page()
+    page.route(
+        "**/data/missing.json",
+        lambda route: route.fulfill(status=503, body="暫停服務"),
+    )
+    page.route(
+        "**/data/malformed.json",
+        lambda route: route.fulfill(
+            status=200,
+            body='{"schema_version": 1, "storms": "not-an-array"}',
+            content_type="application/json",
+        ),
+    )
+    page.goto(site_url)
+    messages = page.evaluate(
+        """async () => {
+          const data = await import('/js/data.js');
+          const messages = [];
+          for (const href of ['/data/missing.json', '/data/malformed.json']) {
+            try {
+              await data.loadCycle(href);
+            } catch (error) {
+              messages.push(error.message);
+            }
+          }
+          return messages;
+        }"""
+    )
+    assert messages == ["目前無法取得預報資料", "預報資料格式不正確"]
+    page.close()
+
+
+def test_dashboard_uses_only_local_runtime_resources(
+    browser: Browser,
+    site_url: str,
+) -> None:
+    page = browser.new_page()
+    requested_urls: list[str] = []
+    page.on("request", lambda request: requested_urls.append(request.url))
+    page.goto(site_url)
+
+    expected_host = urlparse(site_url).netloc
+    assert requested_urls
+    assert all(urlparse(url).netloc == expected_host for url in requested_urls)
+    for selector, attribute in (
+        ("script[src]", "src"),
+        ("link[href]", "href"),
+        ("img[src]", "src"),
+    ):
+        for value in page.locator(selector).evaluate_all(
+            f"(nodes) => nodes.map((node) => node.getAttribute('{attribute}'))"
+        ):
+            assert not value.startswith(("http://", "https://", "//"))
+    page.close()
+
+
+def test_desktop_layout_keeps_map_dominant_and_controls_accessible(
+    browser: Browser,
+    site_url: str,
+) -> None:
+    page = dashboard_page(browser, site_url)
+    map_box = page.locator(".map-panel").bounding_box()
+    side_box = page.locator(".chart-stack").bounding_box()
+    assert map_box is not None and side_box is not None
+    assert map_box["x"] < side_box["x"]
+    assert map_box["width"] > side_box["width"]
+
+    for control in page.locator("select, button").all():
+        box = control.bounding_box()
+        assert box is not None
+        assert box["height"] >= 44
+
+    source_select = page.get_by_label("資料來源")
+    source_select.focus()
+    focus_style = source_select.evaluate(
+        """(node) => ({
+          style: getComputedStyle(node).outlineStyle,
+          width: getComputedStyle(node).outlineWidth,
+        })"""
+    )
+    assert focus_style["style"] != "none"
+    assert focus_style["width"] != "0px"
+    page.close()
+
+
+def test_mobile_layout_is_one_column_without_horizontal_scroll(
+    browser: Browser,
+    site_url: str,
+) -> None:
+    page = dashboard_page(
+        browser,
+        site_url,
+        viewport={"width": 390, "height": 844},
+    )
+    map_box = page.locator(".map-panel").bounding_box()
+    wind_box = page.locator(".wind-panel").bounding_box()
+    pressure_box = page.locator(".pressure-panel").bounding_box()
+    assert map_box is not None and wind_box is not None and pressure_box is not None
+    assert map_box["y"] < wind_box["y"] < pressure_box["y"]
+    assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+    page.close()
+
+
+def test_visual_tokens_and_reduced_motion_rule_are_present(
+    browser: Browser,
+    site_url: str,
+) -> None:
+    page = browser.new_page()
+    page.goto(site_url)
+    tokens = page.evaluate(
+        """() => {
+          const styles = getComputedStyle(document.documentElement);
+          return Object.fromEntries([
+            '--sea-50', '--sea-100', '--sea-700', '--ocean-900', '--land-200',
+            '--track-mist', '--pressure', '--ink-900', '--ink-600', '--line',
+            '--warning', '--danger', '--surface'
+          ].map((name) => [name, styles.getPropertyValue(name).trim()]));
+        }"""
+    )
+    assert tokens == {
+        "--sea-50": "#eaf3f2",
+        "--sea-100": "#d6e7e5",
+        "--sea-700": "#137c78",
+        "--ocean-900": "#083b4c",
+        "--land-200": "#c8d6c7",
+        "--track-mist": "#79aaa5",
+        "--pressure": "#8b5262",
+        "--ink-900": "#17313b",
+        "--ink-600": "#526b70",
+        "--line": "#bdd3d0",
+        "--warning": "#a45b18",
+        "--danger": "#a13939",
+        "--surface": "#ffffff",
+    }
+    css = page.locator("link[rel='stylesheet']").evaluate(
+        "async (link) => await (await fetch(link.href)).text()"
+    )
+    assert "@media (prefers-reduced-motion: reduce)" in css
+    assert "linear-gradient" not in css
+    assert "box-shadow" not in css
+    page.close()
