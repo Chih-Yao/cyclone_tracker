@@ -931,24 +931,32 @@ Define these exact tokens and use only system/local font stacks:
 
 ```css
 :root {
-  --sea-50: #eef9fa;
-  --sea-100: #d8f0f1;
-  --sea-700: #126b73;
-  --ocean-900: #123c55;
-  --land-200: #dce8d7;
-  --ink-900: #162f3a;
-  --ink-600: #526b73;
-  --line: #c9dfe0;
+  --sea-50: #eaf3f2;
+  --sea-100: #d6e7e5;
+  --sea-700: #137c78;
+  --ocean-900: #083b4c;
+  --land-200: #c8d6c7;
+  --track-mist: #79aaa5;
+  --pressure: #8b5262;
+  --ink-900: #17313b;
+  --ink-600: #526b70;
+  --line: #bdd3d0;
   --warning: #a45b18;
   --danger: #a13939;
   --surface: #ffffff;
-  --display-font: "Iowan Old Style", "Palatino Linotype", "Noto Serif TC", serif;
-  --body-font: "Avenir Next", "PingFang TC", "Noto Sans TC", sans-serif;
-  --data-font: "SFMono-Regular", Consolas, monospace;
+  --display-font: "Avenir Next Condensed", "PingFang TC", "Noto Sans TC", sans-serif;
+  --body-font: "Avenir Next", "PingFang TC", "Noto Sans TC", system-ui, sans-serif;
+  --data-font: "SFMono-Regular", "Roboto Mono", ui-monospace, monospace;
 }
 ```
 
-Desktop grid is `minmax(0, 1.85fr) minmax(20rem, 1fr)`; at `max-width: 820px` it becomes one column. Include visible `:focus-visible`, visually hidden text, no animation under `prefers-reduced-motion`, and a minimum 44px interactive target.
+Treat the page as one continuous marine forecast instrument separated by one-pixel rails, not a
+grid of rounded cards: no gradients, glass effects, floating shadows or decorative pills. The
+forecast ribbon is the signature element—quiet `--track-mist` member paths around one strong
+`--ocean-900` mean route; reserve `--pressure` only for the pressure chart. Desktop grid is
+`minmax(0, 1.85fr) minmax(20rem, 1fr)`; at `max-width: 820px` it becomes one column. Include
+visible `:focus-visible`, visually hidden text, no animation under `prefers-reduced-motion`, and a
+minimum 44px interactive target.
 
 - [ ] **Step 6: Verify the foundation in Chromium**
 
