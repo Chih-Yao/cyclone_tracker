@@ -18,6 +18,19 @@ from cyclone_tracker.config import ncep_cycle_url
 INITIALIZED_AT = datetime(2026, 7, 15, tzinfo=UTC)
 
 
+def expected_tracker_files(source_id: str, cycle: datetime) -> list[str]:
+    techniques = {
+        "gefs": ["ac00", *(f"ap{member:02d}" for member in range(1, 31)), "aemn"],
+        "aigefs": [*(f"a{member:03d}" for member in range(31)), "aimn"],
+        "aigfs": ["agfs"],
+    }[source_id]
+    return [f"{technique}.t{cycle:%H}z.cyclone.trackatcfunix" for technique in techniques]
+
+
+def directory_listing(filenames: list[str]) -> str:
+    return "\n".join(f'<a href="{filename}">{filename}</a>' for filename in filenames)
+
+
 @pytest.fixture
 def fixture_text() -> str:
     return Path("tests/fixtures/atcf/wp_tracks.dat").read_text(encoding="ascii")
@@ -28,6 +41,43 @@ def test_parse_coordinate_handles_hemispheres() -> None:
     assert parse_atcf_coordinate("1795E") == 179.5
     assert parse_atcf_coordinate("005S") == -0.5
     assert parse_atcf_coordinate("1795W") == -179.5
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("000N", 0.0),
+        ("900N", 90.0),
+        ("900S", -90.0),
+        ("1800E", 180.0),
+        ("1800W", -180.0),
+    ],
+)
+def test_parse_coordinate_accepts_valid_boundaries(value: str, expected: float) -> None:
+    assert parse_atcf_coordinate(value) == expected
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "9999E",
+        "-005S",
+        "+005N",
+        "901N",
+        "1200N",
+        "1801E",
+        "1801W",
+        "",
+        "N152",
+        "15.2N",
+        "005 S",
+        "005SS",
+        "005Q",
+    ],
+)
+def test_parse_coordinate_rejects_malformed_or_out_of_range_tokens(value: str) -> None:
+    with pytest.raises(ValueError):
+        parse_atcf_coordinate(value)
 
 
 def test_parse_atcf_filters_wp_and_builds_named_and_invest_storms(fixture_text: str) -> None:
@@ -117,6 +167,7 @@ def test_ncep_cycle_url_uses_source_directory_and_cycle() -> None:
 def test_fetch_latest_falls_back_and_combines_only_matching_gefs_files() -> None:
     first_url = ncep_cycle_url("gefs", datetime(2026, 7, 15, 6, tzinfo=UTC))
     selected_url = ncep_cycle_url("gefs", INITIALIZED_AT)
+    expected_files = expected_tracker_files("gefs", INITIALIZED_AT)
     calls: list[str] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -127,22 +178,20 @@ def test_fetch_latest_falls_back_and_combines_only_matching_gefs_files() -> None
         if url == selected_url:
             return httpx.Response(
                 200,
-                text="""
-                    <a href="ap01.t00z.cyclone.trackatcfunix">AP01</a>
-                    <a href="a001.t00z.cyclone.trackatcfunix">wrong model</a>
-                    <a href="ac00.t00z.cyclone.trackatcfunix">AC00</a>
-                    <a href="ap01.t00z.cyclone.trackatcfunix">duplicate link</a>
-                """,
+                text=directory_listing(
+                    [
+                        *expected_files,
+                        "a001.t00z.cyclone.trackatcfunix",
+                        "ap01.t00z.cyclone.trackatcfunix",
+                    ]
+                ),
             )
-        if url == f"{selected_url}ac00.t00z.cyclone.trackatcfunix":
+        filename = request.url.path.rsplit("/", maxsplit=1)[-1]
+        if filename in expected_files:
+            technique = filename.split(".", maxsplit=1)[0].upper()
             return httpx.Response(
                 200,
-                text="WP, 09, 2026071500, 03, AC00, 000, 152N, 1300E, 45, 990\n",
-            )
-        if url == f"{selected_url}ap01.t00z.cyclone.trackatcfunix":
-            return httpx.Response(
-                200,
-                text="WP, 09, 2026071500, 03, AP01, 000, 154N, 1305E, 55, 985\n",
+                text=f"WP, 09, 2026071500, 03, {technique}, 000, 152N, 1300E, 45, 990\n",
             )
         raise AssertionError(f"unexpected request: {url}")
 
@@ -155,13 +204,12 @@ def test_fetch_latest_falls_back_and_combines_only_matching_gefs_files() -> None
     assert outcome.cycle_id == "2026071500"
     assert outcome.cycle is not None
     assert outcome.cycle.source_id == "gefs"
-    assert [member.id for member in outcome.cycle.storms[0].members] == ["AC00", "AP01"]
-    assert outcome.cycle.storms[0].mean.points[0].member_count == 2
+    assert len(outcome.cycle.storms[0].members) == 32
+    assert outcome.cycle.storms[0].mean.points[0].member_count == 31
     assert calls == [
         first_url,
         selected_url,
-        f"{selected_url}ac00.t00z.cyclone.trackatcfunix",
-        f"{selected_url}ap01.t00z.cyclone.trackatcfunix",
+        *(f"{selected_url}{filename}" for filename in sorted(expected_files)),
     ]
 
 
@@ -186,10 +234,30 @@ def test_fetch_latest_returns_empty_for_published_cycle_without_supported_wp_tra
     assert outcome.cycle_id == "2026071500"
     assert outcome.cycle is not None
     assert outcome.cycle.storms == []
+    assert outcome.error_kind is None
+
+
+def test_fetch_latest_reports_corrupt_200_tracker_payload_as_error() -> None:
+    cycle_url = ncep_cycle_url("aigfs", INITIALIZED_AT)
+    expected_filename = expected_tracker_files("aigfs", INITIALIZED_AT)[0]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if str(request.url) == cycle_url:
+            return httpx.Response(200, text=directory_listing([expected_filename]))
+        return httpx.Response(200, text="<html><body>upstream error</body></html>")
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        outcome = NcepAtcfAdapter("aigfs", client=client).fetch_latest(INITIALIZED_AT)
+
+    assert outcome.status == "error"
+    assert outcome.cycle_id == "2026071500"
+    assert outcome.cycle is None
+    assert outcome.error_kind == "invalid_atcf_payload"
 
 
 def test_fetch_latest_matches_aigefs_files_but_excludes_postprocessed_variants() -> None:
     cycle_url = ncep_cycle_url("aigefs", INITIALIZED_AT)
+    expected_files = expected_tracker_files("aigefs", INITIALIZED_AT)
     requested_files: list[str] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -197,14 +265,10 @@ def test_fetch_latest_matches_aigefs_files_but_excludes_postprocessed_variants()
         if str(request.url) == cycle_url:
             return httpx.Response(
                 200,
-                text="""
-                    <a href="a000.t00z.cyclone.trackatcfunix">A000</a>
-                    <a href="a000p.t00z.cyclone.trackatcfunix">A000 postprocessed</a>
-                    <a href="aimn.t00z.cyclone.trackatcfunix">AIMN</a>
-                """,
+                text=directory_listing([*expected_files, "a000p.t00z.cyclone.trackatcfunix"]),
             )
         requested_files.append(filename)
-        technique = "A000" if filename.startswith("a000.") else "AIMN"
+        technique = filename.split(".", maxsplit=1)[0].upper()
         return httpx.Response(
             200,
             text=f"WP, 09, 2026071500, 03, {technique}, 000, 152N, 1300E, 45, 990\n",
@@ -214,12 +278,43 @@ def test_fetch_latest_matches_aigefs_files_but_excludes_postprocessed_variants()
         outcome = NcepAtcfAdapter("aigefs", client=client).fetch_latest(INITIALIZED_AT)
 
     assert outcome.status == "ok"
-    assert requested_files == [
-        "a000.t00z.cyclone.trackatcfunix",
-        "aimn.t00z.cyclone.trackatcfunix",
-    ]
+    assert requested_files == sorted(expected_files)
     assert outcome.cycle is not None
-    assert outcome.cycle.storms[0].mean.points[0].member_count == 1
+    assert outcome.cycle.storms[0].mean.points[0].member_count == 31
+
+
+def test_fetch_latest_falls_back_when_newest_listing_has_only_postprocessed_file() -> None:
+    newest_cycle = datetime(2026, 7, 15, 6, tzinfo=UTC)
+    newest_url = ncep_cycle_url("aigfs", newest_cycle)
+    selected_url = ncep_cycle_url("aigfs", INITIALIZED_AT)
+    selected_filename = expected_tracker_files("aigfs", INITIALIZED_AT)[0]
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        calls.append(url)
+        if url == newest_url:
+            return httpx.Response(
+                200,
+                text=directory_listing(["agfsp.t06z.cyclone.trackatcfunix"]),
+            )
+        if url == selected_url:
+            return httpx.Response(200, text=directory_listing([selected_filename]))
+        if url == f"{selected_url}{selected_filename}":
+            return httpx.Response(
+                200,
+                text="WP, 09, 2026071500, 03, AGFS, 000, 152N, 1300E, 45, 990\n",
+            )
+        raise AssertionError(f"unexpected request: {url}")
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        outcome = NcepAtcfAdapter("aigfs", client=client).fetch_latest(
+            datetime(2026, 7, 15, 10, 30, tzinfo=UTC)
+        )
+
+    assert outcome.status == "ok"
+    assert outcome.cycle_id == "2026071500"
+    assert calls == [newest_url, selected_url, f"{selected_url}{selected_filename}"]
 
 
 def test_fetch_latest_returns_unavailable_after_eight_missing_cycles() -> None:

@@ -36,6 +36,11 @@ _FILE_PREFIX_PATTERNS = {
     "aigefs": r"(?:a0(?:0[0-9]|[12][0-9]|30)|aimn)",
     "aigfs": r"agfs",
 }
+_EXPECTED_TECHNIQUES = {
+    "gefs": ("ac00", *(f"ap{member:02d}" for member in range(1, 31)), "aemn"),
+    "aigefs": (*(f"a{member:03d}" for member in range(31)), "aimn"),
+    "aigfs": ("agfs",),
+}
 
 
 class _DirectoryLinkParser(HTMLParser):
@@ -53,10 +58,16 @@ class _DirectoryLinkParser(HTMLParser):
 
 def parse_atcf_coordinate(value: str) -> float:
     coordinate = value.strip().upper()
-    if len(coordinate) < 2 or coordinate[-1] not in "NSEW":
+    match = re.fullmatch(r"([0-9]+)([NSEW])", coordinate)
+    if match is None:
         raise ValueError(f"invalid ATCF coordinate: {value!r}")
-    magnitude = int(coordinate[:-1]) / 10.0
-    return -magnitude if coordinate[-1] in "SW" else magnitude
+    magnitude_tenths = int(match.group(1))
+    hemisphere = match.group(2)
+    maximum = 900 if hemisphere in "NS" else 1800
+    if magnitude_tenths > maximum:
+        raise ValueError(f"ATCF coordinate out of range: {value!r}")
+    magnitude = magnitude_tenths / 10.0
+    return -magnitude if hemisphere in "SW" else magnitude
 
 
 def _parse_pressure(value: str) -> float | None:
@@ -64,6 +75,30 @@ def _parse_pressure(value: str) -> float | None:
         return None
     pressure = float(value)
     return pressure if pressure > 0 else None
+
+
+def _contains_syntactically_valid_atcf_row(text: str) -> bool:
+    for row in csv.reader(text.splitlines()):
+        fields = [field.strip() for field in row[:10]]
+        if len(fields) < 10:
+            continue
+        basin, number, cycle, _, technique, tau, lat, lon, wind, pressure = fields
+        if len(basin) != 2 or not basin.isalpha() or not technique:
+            continue
+        if not lat.upper().endswith(("N", "S")) or not lon.upper().endswith(("E", "W")):
+            continue
+        try:
+            int(number)
+            datetime.strptime(cycle, "%Y%m%d%H")
+            int(tau)
+            parse_atcf_coordinate(lat)
+            parse_atcf_coordinate(lon)
+            float(wind)
+            _parse_pressure(pressure)
+        except ValueError:
+            continue
+        return True
+    return False
 
 
 def parse_atcf_text(text: str, *, source_id: str, initialized_at: datetime) -> CycleData:
@@ -166,6 +201,13 @@ def _matching_tracker_files(source_id: str, cycle: datetime, listing: str) -> li
     return sorted(filename for filename in filenames if pattern.fullmatch(filename))
 
 
+def _expected_tracker_files(source_id: str, cycle: datetime) -> set[str]:
+    return {
+        f"{technique}.t{cycle:%H}z.cyclone.trackatcfunix"
+        for technique in _EXPECTED_TECHNIQUES[source_id]
+    }
+
+
 class NcepAtcfAdapter:
     def __init__(self, source_id: str, *, client: httpx.Client | None = None) -> None:
         if source_id not in NCEP_DIRECTORY_NAMES:
@@ -203,6 +245,8 @@ class NcepAtcfAdapter:
                 )
 
             filenames = _matching_tracker_files(self.source_id, cycle, response.text)
+            if set(filenames) != _expected_tracker_files(self.source_id, cycle):
+                continue
             file_texts: list[str] = []
             for filename in filenames:
                 try:
@@ -220,6 +264,13 @@ class NcepAtcfAdapter:
                         cycle_id=cycle_id,
                         status="error",
                         error_kind="http_error",
+                    )
+                if not _contains_syntactically_valid_atcf_row(file_response.text):
+                    return AdapterOutcome(
+                        source_id=self.source_id,
+                        cycle_id=cycle_id,
+                        status="error",
+                        error_kind="invalid_atcf_payload",
                     )
                 file_texts.append(file_response.text)
 
