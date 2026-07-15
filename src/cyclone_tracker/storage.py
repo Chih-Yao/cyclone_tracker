@@ -147,6 +147,32 @@ class DataStore:
             raise ValueError(f"cycle path must not be a symlink: {source_id}/{cycle_id}")
         return path
 
+    def _remove_unreferenced_cycles(
+        self,
+        source_id: str,
+        referenced_ids: set[str],
+    ) -> bool:
+        if source_id not in SOURCE_CONFIG_BY_ID:
+            raise ValueError(f"unknown source: {source_id}")
+        source_dir = self.root / source_id
+        if source_dir.is_symlink():
+            raise ValueError(f"source directory must not be a symlink: {source_id}")
+        if not source_dir.exists():
+            return False
+        if not source_dir.is_dir():
+            raise ValueError(f"source path must be a directory: {source_id}")
+
+        changed = False
+        for path in sorted(source_dir.iterdir(), key=lambda item: item.name):
+            if path.is_symlink() or not path.is_file() or path.suffix != ".json":
+                continue
+            cycle_id = path.stem
+            if _CYCLE_ID.fullmatch(cycle_id) is None or cycle_id in referenced_ids:
+                continue
+            self._cycle_path(source_id, cycle_id).unlink()
+            changed = True
+        return changed
+
     @staticmethod
     def _prepare_atomic_file(
         destination: Path,
@@ -205,7 +231,7 @@ class DataStore:
             and len(source.cycles) >= _MAX_CYCLES
             and cycle.initialized_at < source.cycles[-1].initialized_at
         ):
-            return False
+            return self._remove_unreferenced_cycles(cycle.source_id, existing_ids)
 
         summary = CycleSummary(
             id=cycle_id,
@@ -218,7 +244,6 @@ class DataStore:
         summaries.append(summary)
         summaries.sort(key=lambda item: item.initialized_at, reverse=True)
         retained = summaries[:_MAX_CYCLES]
-        removed = summaries[_MAX_CYCLES:]
         latest = retained[0]
         status = "empty" if latest.empty else "ok"
         effective_now = now.astimezone(UTC) if now is not None else cycle.initialized_at
@@ -238,7 +263,10 @@ class DataStore:
         comparison.generated_at = manifest.generated_at
         manifest_state_changed = comparison != manifest
         if not cycle_changed and not manifest_state_changed:
-            return False
+            return self._remove_unreferenced_cycles(
+                cycle.source_id,
+                {item.id for item in retained},
+            )
         candidate.generated_at = effective_now
         candidate_bytes = manifest_to_json_bytes(candidate)
         validated_manifest = _validate_model_bytes(candidate_bytes, Manifest)
@@ -276,10 +304,10 @@ class DataStore:
             if manifest_temp is not None:
                 manifest_temp.unlink(missing_ok=True)
 
-        retained_ids = {item.id for item in retained}
-        for old_summary in removed:
-            if old_summary.id not in retained_ids:
-                self._cycle_path(cycle.source_id, old_summary.id).unlink(missing_ok=True)
+        self._remove_unreferenced_cycles(
+            cycle.source_id,
+            {item.id for item in retained},
+        )
         return True
 
     def _record_status(

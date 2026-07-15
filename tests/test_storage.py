@@ -80,6 +80,45 @@ def test_publish_retains_latest_twelve_successful_cycles(tmp_path: Path) -> None
     assert not (tmp_path / "gefs" / "2026070100.json").exists()
 
 
+def test_retry_cleans_orphan_after_transient_retention_unlink_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = DataStore(tmp_path)
+    start = datetime(2026, 7, 1, tzinfo=UTC)
+    for offset in range(12):
+        store.publish_cycle(cycle_at(start + timedelta(hours=6 * offset)))
+
+    evicted_path = tmp_path / "gefs" / "2026070100.json"
+    thirteenth = cycle_at(start + timedelta(hours=6 * 12))
+    real_unlink = Path.unlink
+    failed_once = False
+
+    def transient_unlink_failure(path: Path, missing_ok: bool = False) -> None:
+        nonlocal failed_once
+        if path == evicted_path and not failed_once:
+            failed_once = True
+            raise OSError("simulated transient retention unlink failure")
+        real_unlink(path, missing_ok=missing_ok)
+
+    monkeypatch.setattr(Path, "unlink", transient_unlink_failure)
+    with pytest.raises(OSError, match="transient retention unlink failure"):
+        store.publish_cycle(thirteenth, now=datetime(2026, 7, 4, 1, tzinfo=UTC))
+
+    manifest_path = tmp_path / "manifest.json"
+    manifest_after_failure = manifest_path.read_bytes()
+    assert evicted_path.exists()
+    assert (tmp_path / "gefs" / "2026070400.json").exists()
+    assert any("未被 manifest 引用" in error for error in store.validate_tree())
+
+    assert store.publish_cycle(thirteenth, now=datetime(2026, 7, 4, 2, tzinfo=UTC)) is True
+    assert not evicted_path.exists()
+    assert manifest_path.read_bytes() == manifest_after_failure
+    assert store.validate_tree() == []
+    source = store.load_manifest().sources[0]
+    assert len(source.cycles) == 12
+    assert source.cycles[0].id == "2026070400"
+
+
 def test_empty_cycles_are_published_and_count_toward_retention(tmp_path: Path) -> None:
     store = DataStore(tmp_path)
     start = datetime(2026, 7, 1, tzinfo=UTC)
