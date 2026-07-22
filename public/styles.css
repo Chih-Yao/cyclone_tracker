@@ -37,6 +37,10 @@ body {
   line-height: 1.5;
 }
 
+body.map-expanded {
+  overflow: hidden;
+}
+
 button,
 select {
   color: inherit;
@@ -348,6 +352,20 @@ select:disabled {
   border-right: 1px solid var(--line);
 }
 
+.map-panel[data-expanded="true"] {
+  position: fixed;
+  z-index: 20;
+  inset: 1rem;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  border: 1px solid var(--ocean-900);
+  background: var(--surface);
+}
+
+.map-panel[data-expanded="true"] .map-frame {
+  min-height: 0;
+  aspect-ratio: auto;
+}
+
 .chart-stack {
   display: grid;
   min-width: 0;
@@ -379,6 +397,32 @@ select:disabled {
   font-family: var(--data-font);
   font-size: 0.7rem;
   text-align: right;
+}
+
+.section-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.75rem;
+}
+
+.map-expand-button {
+  min-height: 44px;
+  padding: 0.5rem 0.8rem;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ocean-900);
+  cursor: pointer;
+  font-family: var(--data-font);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.035em;
+}
+
+.map-expand-button:hover,
+.map-expand-button[aria-expanded="true"] {
+  border-color: var(--sea-700);
+  background: var(--sea-100);
 }
 
 .plot-frame {
@@ -674,6 +718,23 @@ select:disabled {
     border-bottom: 1px solid var(--line);
   }
 
+  .map-panel[data-expanded="true"] {
+    inset: 0;
+    border: 0;
+  }
+
+  .map-panel[data-expanded="true"] .map-frame {
+    display: block;
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+
+  .map-panel[data-expanded="true"] .forecast-map {
+    width: auto;
+    min-width: 100%;
+    max-width: none;
+  }
+
   .map-frame {
     min-height: 0;
     aspect-ratio: 7 / 4;
@@ -717,6 +778,11 @@ select:disabled {
   .section-note {
     text-align: left;
   }
+
+  .section-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -732,6 +798,8 @@ select:disabled {
 
 @media (forced-colors: active) {
   .load-status,
+  .map-expand-button,
+  .map-panel[data-expanded="true"],
   .map-legend rect,
   .map-tooltip rect {
     border-color: CanvasText;

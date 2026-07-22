@@ -421,6 +421,71 @@ def test_mobile_layout_is_one_column_without_horizontal_scroll(
     page.close()
 
 
+@pytest.mark.parametrize(
+    "viewport",
+    [
+        {"width": 1440, "height": 900},
+        {"width": 390, "height": 844},
+    ],
+    ids=["desktop", "mobile"],
+)
+def test_map_can_expand_and_restore_with_escape(
+    browser: Browser,
+    site_url: str,
+    viewport: dict[str, int],
+) -> None:
+    page = dashboard_page(browser, site_url, viewport=viewport)
+    wait_for_dashboard(page)
+    panel = page.locator("#map-panel")
+    button = page.get_by_role("button", name="放大地圖")
+
+    assert button.count() == 1
+    assert button.get_attribute("aria-controls") == "map-panel"
+    assert button.get_attribute("aria-expanded") == "false"
+    assert panel.get_attribute("data-expanded") == "false"
+    initial_map_scale = page.locator("#forecast-map").evaluate("(node) => node.getScreenCTM().a")
+
+    button.click()
+    assert page.get_by_role("button", name="還原地圖").get_attribute("aria-expanded") == "true"
+    assert panel.get_attribute("data-expanded") == "true"
+    assert panel.get_attribute("role") == "dialog"
+    assert panel.get_attribute("aria-modal") == "true"
+    assert page.locator(".chart-stack").evaluate("(node) => node.inert")
+    assert page.locator("body").evaluate("(node) => node.classList.contains('map-expanded')")
+    panel_box = panel.bounding_box()
+    assert panel_box is not None
+    assert panel_box["width"] >= viewport["width"] - 32
+    assert panel_box["height"] >= viewport["height"] - 32
+    assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+    expanded_map_scale = page.locator("#forecast-map").evaluate("(node) => node.getScreenCTM().a")
+    assert expanded_map_scale > initial_map_scale * 1.1
+    if viewport["width"] <= 820:
+        frame = panel.locator(".map-frame")
+        assert frame.evaluate("(node) => node.scrollWidth > node.clientWidth")
+        page.wait_for_function("document.querySelector('.map-frame').scrollLeft > 0")
+
+    focusable = panel.locator('a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])')
+    assert focusable.count() > 1
+    page.get_by_role("button", name="還原地圖").focus()
+    page.keyboard.press("Shift+Tab")
+    assert focusable.last.evaluate("(node) => document.activeElement === node")
+    page.keyboard.press("Tab")
+    assert page.get_by_role("button", name="還原地圖").evaluate(
+        "(node) => document.activeElement === node"
+    )
+
+    page.keyboard.press("Escape")
+    button = page.get_by_role("button", name="放大地圖")
+    assert button.get_attribute("aria-expanded") == "false"
+    assert panel.get_attribute("data-expanded") == "false"
+    assert panel.get_attribute("role") is None
+    assert panel.get_attribute("aria-modal") is None
+    assert not page.locator(".chart-stack").evaluate("(node) => node.inert")
+    assert not page.locator("body").evaluate("(node) => node.classList.contains('map-expanded')")
+    assert button.evaluate("(node) => document.activeElement === node")
+    page.close()
+
+
 def test_mobile_map_legend_remains_readable(
     browser: Browser,
     site_url: str,
@@ -1064,8 +1129,10 @@ def test_source_storm_and_unit_controls_update_the_view(
     page = dashboard_page(browser, site_url)
     wait_for_dashboard(page)
 
-    assert page.locator("#wind-chart path.member-series").count() == 0
-    assert page.locator("#pressure-chart path.member-series").count() == 0
+    assert page.locator("#wind-chart path.member-series").count() == 2
+    assert page.locator("#pressure-chart path.member-series").count() == 2
+    assert page.locator("#wind-chart path.mean-series").count() == 1
+    assert page.locator("#pressure-chart path.mean-series").count() == 1
 
     metric_button = page.get_by_role("button", name="m/s")
     metric_button.click()
@@ -1096,8 +1163,8 @@ def test_source_storm_and_unit_controls_update_the_view(
 
     page.get_by_label("資料來源").select_option("gefs")
     page.locator(".instrument-shell[data-current-source='gefs']").wait_for(timeout=5_000)
-    assert page.locator("#wind-chart path.member-series").count() == 0
-    assert page.locator("#pressure-chart path.member-series").count() == 0
+    assert page.locator("#wind-chart path.member-series").count() == 2
+    assert page.locator("#pressure-chart path.member-series").count() == 2
     page.close()
 
 

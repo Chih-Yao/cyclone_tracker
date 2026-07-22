@@ -86,6 +86,7 @@
           <section
             id="map-panel"
             class="panel map-panel"
+            data-expanded="false"
             aria-labelledby="map-heading"
             aria-describedby="forecast-guidance"
           >
@@ -97,7 +98,18 @@
                 <p class="section-index">FORECAST RIBBON · ENSEMBLE</p>
                 <h2 id="map-heading">預報航跡</h2>
               </div>
-              <p class="section-note">集合成員與平均路徑</p>
+              <div class="section-actions">
+                <p class="section-note">集合成員與平均路徑</p>
+                <button
+                  id="map-expand-button"
+                  class="map-expand-button"
+                  type="button"
+                  aria-controls="map-panel"
+                  aria-expanded="false"
+                >
+                  <span data-map-expand-label>放大地圖</span>
+                </button>
+              </div>
             </div>
             <div class="plot-frame map-frame">
               <svg
@@ -139,8 +151,7 @@
                 >
                   <title id="wind-chart-title">最大風速預報圖</title>
                   <desc id="wind-chart-description">
-                    粗線表示集合平均或主要預報的最大風速；只有選擇 ECMWF
-                    IFS／AIFS 時，細線才顯示個別集合成員。
+                    粗線表示集合平均或主要預報的最大風速；若所選模式提供集合成員，細線顯示個別成員。
                   </desc>
                 </svg>
               </div>
@@ -169,8 +180,7 @@
                 >
                   <title id="pressure-chart-title">中心氣壓預報圖</title>
                   <desc id="pressure-chart-description">
-                    粗線表示集合平均或主要預報的中心氣壓；只有選擇 ECMWF
-                    IFS／AIFS 時，細線才顯示個別集合成員。
+                    粗線表示集合平均或主要預報的中心氣壓；若所選模式提供集合成員，細線顯示個別成員。
                   </desc>
                 </svg>
               </div>

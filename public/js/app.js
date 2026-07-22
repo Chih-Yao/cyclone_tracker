@@ -4,7 +4,9 @@ import { renderMap } from "./map.js";
 
 const WIND_UNIT_KEY = "cyclone-wind-unit";
 const NO_STORE = Object.freeze({ cache: "no-store" });
-const ECMWF_SOURCE_IDS = new Set(["ifs-ens", "aifs-ens"]);
+const SOURCE_MEAN_MEMBER_TYPE = "source_mean";
+const MAP_FOCUSABLE_SELECTOR =
+  'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 function storedUnit() {
   try {
@@ -36,9 +38,19 @@ const view = {
   freshness: document.querySelector("#source-freshness"),
   generatedAt: document.querySelector("#generated-at"),
   attribution: document.querySelector("#source-attribution"),
+  mapPanel: document.querySelector("#map-panel"),
+  mapExpand: document.querySelector("#map-expand-button"),
+  mapExpandLabel: document.querySelector("[data-map-expand-label]"),
+  mapFrame: document.querySelector(".map-frame"),
   map: document.querySelector("#forecast-map"),
   wind: document.querySelector("#wind-chart"),
   pressure: document.querySelector("#pressure-chart"),
+  mapBackground: [
+    document.querySelector(".skip-link"),
+    document.querySelector("header"),
+    document.querySelector(".chart-stack"),
+    document.querySelector(".disclaimer-rail"),
+  ],
 };
 
 function selectedSource(manifest = state.manifest) {
@@ -53,11 +65,64 @@ function selectedStorm() {
   return state.cycle?.storms.find((storm) => storm.id === state.stormId) ?? null;
 }
 
+function individualMembers(storm, sourceId = state.sourceId) {
+  return (storm?.members ?? []).filter((member) => {
+    if (member.member_type === SOURCE_MEAN_MEMBER_TYPE) {
+      return false;
+    }
+    return sourceId !== "aigfs" || member.member_type !== "deterministic";
+  });
+}
+
 function renderStrengthCharts(storm) {
   const points = storm?.mean?.points ?? [];
-  const members = ECMWF_SOURCE_IDS.has(state.sourceId) ? (storm?.members ?? []) : [];
+  const members = individualMembers(storm);
   renderWindChart(view.wind, points, { unit: state.unit, members });
   renderPressureChart(view.pressure, points, { members });
+}
+
+function setMapExpanded(expanded) {
+  view.mapPanel.dataset.expanded = String(expanded);
+  view.mapExpand.setAttribute("aria-expanded", String(expanded));
+  view.mapExpandLabel.textContent = expanded ? "還原地圖" : "放大地圖";
+  document.body.classList.toggle("map-expanded", expanded);
+  for (const element of view.mapBackground) {
+    element.inert = expanded;
+  }
+  if (expanded) {
+    view.mapPanel.setAttribute("role", "dialog");
+    view.mapPanel.setAttribute("aria-modal", "true");
+    requestAnimationFrame(() => {
+      view.mapFrame.scrollLeft = Math.max(
+        0,
+        (view.mapFrame.scrollWidth - view.mapFrame.clientWidth) / 2,
+      );
+    });
+  } else {
+    view.mapPanel.removeAttribute("role");
+    view.mapPanel.removeAttribute("aria-modal");
+  }
+}
+
+function trapMapFocus(event) {
+  const focusable = [...view.mapPanel.querySelectorAll(MAP_FOCUSABLE_SELECTOR)].filter(
+    (element) => element.getClientRects().length > 0,
+  );
+  if (focusable.length === 0) {
+    event.preventDefault();
+    return;
+  }
+
+  const first = focusable[0];
+  const last = focusable.at(-1);
+  const focusIsOutside = !view.mapPanel.contains(document.activeElement);
+  if (event.shiftKey && (document.activeElement === first || focusIsOutside)) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && (document.activeElement === last || focusIsOutside)) {
+    event.preventDefault();
+    first.focus();
+  }
 }
 
 function firstAvailableSource(manifest, preferredId = null) {
@@ -385,4 +450,18 @@ for (const button of view.unitButtons) {
 }
 
 view.reload.addEventListener("click", () => void reloadData());
+view.mapExpand.addEventListener("click", () => {
+  setMapExpanded(view.mapPanel.dataset.expanded !== "true");
+});
+document.addEventListener("keydown", (event) => {
+  if (view.mapPanel.dataset.expanded !== "true") {
+    return;
+  }
+  if (event.key === "Escape") {
+    setMapExpanded(false);
+    view.mapExpand.focus();
+  } else if (event.key === "Tab") {
+    trapMapFocus(event);
+  }
+});
 document.addEventListener("DOMContentLoaded", () => void initialize(), { once: true });
